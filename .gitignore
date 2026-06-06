@@ -1,0 +1,21 @@
+.next
+.open-next
+.wrangler
+node_modules
+npm-debug.log*
+.env
+.env*.local
+!.env.example
+dist
+coverage
+*.tsbuildinfo
+
+# Cloudflare / wrangler local state
+.wrangler-dry-run
+
+# Local secrets (never commit)
+.dev.vars
+.dev.vars.*
+
+# OS
+.DS_Store
