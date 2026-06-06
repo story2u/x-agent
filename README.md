@@ -2,7 +2,7 @@
 
 x-agent 是一个本地 CLI/TUI 形式的 X/Twitter 文本创意 agent。TUI 只有一个输入框：直接输入自然语言会生成真实推文 artifact，输入 `/` 可以调用 skills、上下文、模型和历史等命令。
 
-项目使用 `@earendil-works/pi-agent-core` / `@earendil-works/pi-ai`，默认通过 `openai-codex` provider 调用 ChatGPT Plus/Pro 模型。
+项目使用 `@earendil-works/pi-agent-core` / `@earendil-works/pi-ai`，默认通过 `openai-codex` provider 调用 ChatGPT Plus/Pro 模型，也可通过 `PI_PROVIDER=deepseek` 使用 DeepSeek API。
 
 MVP 阶段只做文本：tweet、hashtags、rationale、safety notes，以及可选 `dailyFortune`。不做图片生成、Web 登录、Review Gate 或后台审批流。
 
@@ -64,6 +64,16 @@ export OPENAI_CODEX_ACCESS_TOKEN=...
 export OPENAI_API_KEY=...
 ```
 
+可选 DeepSeek API：
+
+```bash
+export PI_PROVIDER=deepseek
+export PI_MODEL=deepseek-v4-pro
+export DEEPSEEK_API_KEY=...
+```
+
+DeepSeek 使用 OpenAI-compatible Chat Completions，默认 base URL 为 `https://api.deepseek.com`，可用 `DEEPSEEK_BASE_URL` 覆盖。
+
 ## Local Skills
 
 Skills 的 source of truth 是本地 Markdown：
@@ -74,6 +84,8 @@ skills/
     SKILL.md
   daily-fortune-tweet/
     SKILL.md
+    references/
+      *.md
 ```
 
 新增 skill 时创建：
@@ -99,8 +111,9 @@ skills/<slug>/SKILL.md
 - Local Markdown skill loading：`src/lib/skills/local-skills.ts`
 - Text agent runtime：`src/lib/pi-agent.ts`
 - Default `twitter-launch-creative` skill
-- Default `daily-fortune-tweet` skill
+- Default `daily-fortune-tweet` skill with loaded references, operator scoring, rewrite loop guidance, and engagement planning
 - ChatGPT Plus/Pro OAuth credential refresh through pi-ai
+- DeepSeek API provider through OpenAI-compatible Chat Completions
 - Web root page only shows CLI launch instructions
 
 ## Docs Harness
@@ -127,6 +140,7 @@ AI / Codex 开发入口：
 npm run tui -- --help
 printf '/skills\n' | npm run tui
 npm run typecheck
+npm run build
 npm run lint
 npm test
 ```

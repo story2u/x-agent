@@ -6,10 +6,11 @@ import { logError } from "@/lib/logger";
 import { hideNodeVersionDuringPiOAuthImport } from "@/lib/pi-oauth-runtime";
 import {
   compileSkillPrompt,
+  getSkillVersionReferences,
   getSkillVersionSkillMd,
   resolveRuntimeSkill
 } from "@/lib/skills/local-skills";
-import type { DailyFortuneArtifact, GenerationReference, GenerateRequest, GenerateResponse, RunSkillTrace, TwitterCreative } from "@/lib/types";
+import type { DailyFortuneArtifact, DailyFortuneThreadItem, GenerationReference, GenerateRequest, GenerateResponse, RunSkillTrace, TwitterCreative } from "@/lib/types";
 
 const SYSTEM_PROMPT = `You are a Twitter/X creative agent.
 
@@ -19,7 +20,7 @@ Your job:
 
 Rules:
 - The "tweet" field is a standalone post and must stay under 280 characters.
-- For long-form output (longTweet/thread), put the full content in the structured artifact (e.g. dailyFortune.longTweet.body and dailyFortune.thread); do not compress everything to fit 280 characters.
+- For long-form output (longTweet/thread), put the full content in the structured artifact (e.g. dailyFortune.final.longTweet.body and dailyFortune.final.thread); do not compress everything to fit 280 characters.
 - Avoid fake metrics, fake quotes, unverified claims, and engagement bait.
 - If a claim needs evidence, phrase it cautiously.
 - Prefer concrete, publishable language.
@@ -32,11 +33,29 @@ const dailyFortuneSchema = Type.Object(
     selectedSkill: Type.Literal("daily-fortune-tweet"),
     outputType: Type.Union([Type.Literal("longTweet"), Type.Literal("thread"), Type.Literal("both")]),
     inputSummary: Type.Object({
-      date: Type.Union([Type.String(), Type.Null()]),
       topic: Type.String(),
-      audience: Type.Union([Type.String(), Type.Null()]),
+      audience: Type.String(),
+      tone: Type.String(),
       assumptions: Type.Array(Type.String())
     }),
+    audienceInsight: Type.Object({
+      corePain: Type.String(),
+      realScenes: Type.Array(Type.String(), { minItems: 2 }),
+      emotionalNeed: Type.String()
+    }),
+    angleOptions: Type.Array(
+      Type.Object({
+        angle: Type.String(),
+        whyItWorks: Type.String(),
+        safetyRisk: Type.String()
+      }),
+      { minItems: 3, maxItems: 5 }
+    ),
+    selectedAngle: Type.Object({
+      angle: Type.String(),
+      reason: Type.String()
+    }),
+    hookOptions: Type.Array(Type.String(), { minItems: 5 }),
     fortuneSpine: Type.Object({
       keyword: Type.String({ description: "今日关键词，2-4 字，有画面感（如 收口 / 补漏 / 雾散）。" }),
       symbolicImage: Type.String({ description: "一个象征意象（如 钱袋漏风 / 桌面重新整理 / 旧消息浮出水面）。" }),
@@ -44,28 +63,47 @@ const dailyFortuneSchema = Type.Object(
       coreTension: Type.String(),
       practicalAdvice: Type.String({ description: "具体、可执行、非确定性的温和提醒。" })
     }),
-    longTweet: Type.Object({
-      title: Type.String(),
-      body: Type.String({ description: "长推正文；thread-only 时可为空字符串。" }),
-      hashtags: Type.Array(Type.String())
+    draftV1: Type.Object({
+      longTweet: Type.String({ description: "第一版长推草稿；thread-only 时可为空字符串。" }),
+      thread: Type.Array(
+        Type.Object({
+          index: Type.Integer(),
+          text: Type.String(),
+          role: Type.String()
+        })
+      )
     }),
-    thread: Type.Array(
-      Type.Object({
-        index: Type.Integer(),
-        text: Type.String(),
-        role: Type.Union([
-          Type.Literal("hook"),
-          Type.Literal("context"),
-          Type.Literal("money"),
-          Type.Literal("career"),
-          Type.Literal("relationship"),
-          Type.Literal("risk"),
-          Type.Literal("ritual"),
-          Type.Literal("cta")
-        ])
+    operatorCritique: Type.Object({
+      hookStrength: Type.Number({ minimum: 1, maximum: 5 }),
+      specificity: Type.Number({ minimum: 1, maximum: 5 }),
+      audienceFit: Type.Number({ minimum: 1, maximum: 5 }),
+      emotionalResonance: Type.Number({ minimum: 1, maximum: 5 }),
+      shareability: Type.Number({ minimum: 1, maximum: 5 }),
+      saveWorthiness: Type.Number({ minimum: 1, maximum: 5 }),
+      safety: Type.Number({ minimum: 1, maximum: 5 }),
+      problems: Type.Array(Type.String()),
+      rewriteDirection: Type.String()
+    }),
+    final: Type.Object({
+      longTweet: Type.Object({
+        title: Type.String(),
+        body: Type.String({ description: "最终长推正文；thread-only 时可为空字符串。" }),
+        hashtags: Type.Array(Type.String())
       }),
-      { description: "longTweet-only 时为空数组。" }
-    ),
+      thread: Type.Array(
+        Type.Object({
+          index: Type.Integer(),
+          text: Type.String(),
+          role: Type.String()
+        }),
+        { description: "longTweet-only 时为空数组；thread/both 时 5-8 条。" }
+      )
+    }),
+    engagementPlan: Type.Object({
+      cta: Type.String(),
+      commentPrompt: Type.String(),
+      seriesLabel: Type.String()
+    }),
     reviewNotes: Type.Object({
       safetyCheck: Type.Array(Type.String()),
       hypeCheck: Type.Array(Type.String()),
@@ -143,7 +181,9 @@ function readMaxTokens(fallback = 8192) {
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : fallback;
 }
 
-function resolveModel(): Model<"openai-responses"> | Model<"openai-codex-responses"> {
+type RuntimeModel = Model<"openai-responses"> | Model<"openai-codex-responses"> | Model<"openai-completions">;
+
+function resolveModel(): RuntimeModel {
   if (process.env.PI_PROVIDER === "openai-codex") {
     const modelId = process.env.PI_MODEL ?? "gpt-5.5";
     return {
@@ -162,6 +202,27 @@ function resolveModel(): Model<"openai-responses"> | Model<"openai-codex-respons
       },
       contextWindow: 400000,
       maxTokens: readMaxTokens()
+    };
+  }
+
+  if (process.env.PI_PROVIDER === "deepseek") {
+    const modelId = process.env.PI_MODEL ?? "deepseek-v4-pro";
+    return {
+      id: modelId,
+      name: modelId,
+      api: "openai-completions",
+      provider: "deepseek",
+      baseUrl: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
+      reasoning: process.env.DEEPSEEK_REASONING === "false" ? false : true,
+      input: ["text"],
+      cost: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0
+      },
+      contextWindow: 1048576,
+      maxTokens: readMaxTokens(32768)
     };
   }
 
@@ -194,7 +255,7 @@ async function getModelApiKey(provider: string) {
 }
 
 async function streamForModel(
-  model: Model<"openai-responses"> | Model<"openai-codex-responses">,
+  model: RuntimeModel,
   context: Context,
   options: SimpleStreamOptions | undefined
 ) {
@@ -202,6 +263,10 @@ async function streamForModel(
   if (model.api === "openai-codex-responses") {
     const { streamSimpleOpenAICodexResponses } = await importCodexResponses();
     return streamSimpleOpenAICodexResponses(model as Model<"openai-codex-responses">, context, streamOptions);
+  }
+  if (model.api === "openai-completions") {
+    const { streamSimpleOpenAICompletions } = await importOpenAICompletions();
+    return streamSimpleOpenAICompletions(model as Model<"openai-completions">, context, streamOptions);
   }
   const { streamSimpleOpenAIResponses } = await importOpenAIResponses();
   return streamSimpleOpenAIResponses(model as Model<"openai-responses">, context, streamOptions);
@@ -220,6 +285,15 @@ async function importOpenAIResponses() {
   const restore = hideNodeVersionDuringProviderImport();
   try {
     return await import("@earendil-works/pi-ai/openai-responses");
+  } finally {
+    restore();
+  }
+}
+
+async function importOpenAICompletions() {
+  const restore = hideNodeVersionDuringProviderImport();
+  try {
+    return await import("@earendil-works/pi-ai/openai-completions");
   } finally {
     restore();
   }
@@ -268,6 +342,7 @@ export async function generateTwitterCreative(input: GenerateRequest): Promise<G
   let modelErrorMessage: string | undefined;
   const skillTrace = await resolveRuntimeSkill(input);
   const skillMd = skillTrace ? await getSkillVersionSkillMd(skillTrace.skillVersionId) : undefined;
+  const skillReferences = skillTrace ? await getSkillVersionReferences(skillTrace.skillVersionId) : [];
   const references = buildReferences(skillTrace);
 
   const agent = new Agent({
@@ -278,7 +353,7 @@ export async function generateTwitterCreative(input: GenerateRequest): Promise<G
       tools: [finalizeTwitterCreativeTool],
       messages: []
     },
-    streamFn: (model, context, options) => streamForModel(model as Model<"openai-responses"> | Model<"openai-codex-responses">, context, options),
+    streamFn: (model, context, options) => streamForModel(model as RuntimeModel, context, options),
     getApiKey: (provider) => getModelApiKey(provider),
     toolExecution: "sequential",
     afterToolCall: async ({ toolCall, result }) => {
@@ -309,7 +384,7 @@ export async function generateTwitterCreative(input: GenerateRequest): Promise<G
   });
 
   try {
-    await agent.prompt(buildSkillAwarePrompt(input, skillTrace, skillMd));
+    await agent.prompt(buildSkillAwarePrompt(input, skillTrace, skillMd, skillReferences));
   } catch (error) {
     logError("pi_agent_prompt_failed", error, { id, transcript: transcript.join("").slice(0, 800) });
     throw error;
@@ -412,34 +487,59 @@ function createDailyFortuneFallbackCreative(input: GenerateRequest): TwitterCrea
   const body = [
     `${title}`,
     "",
+    `如果今天你第一眼看到“${theme}很好”，先别急着把它理解成天上掉钱。更准确的说法是：今天适合把正在漏掉的东西收回来。`,
+    "",
     `今天的关键词是：${keyword}。`,
     "",
-    `这不是确定性预测，更像是一张提醒卡：好运不一定来自突然降临的机会，更多时候来自你先把小漏洞补上。`,
+    `这不是确定性预测，更像是一张提醒卡：好运不一定来自突然降临的机会，更多时候来自你先把小漏洞补上。比如月底前那张一直没点开的信用卡账单、合租群里还没分清楚的水电费、一个忘记取消的订阅、一次“奖励自己”的小额下单。每一笔都不大，但它们会悄悄改变你对生活的掌控感。`,
     "",
-    `综合来看，今天的能量像“${symbolicImage}”。你可能会想快一点看到结果，但更适合先慢下来，把信息、账单、日程或对话重新确认一遍。`,
+    `综合来看，今天的能量像“${symbolicImage}”。你可能会想快一点看到结果，但更适合先慢下来，把信息、账单、日程或对话重新确认一遍。对海外中文年轻人来说，汇率、转账手续费、咖啡外卖、打车、朋友局 AA，这些最容易被忽略的小口子，反而是今天最值得照看的地方。`,
     "",
     `${theme}提醒：${practicalAdvice}`,
     "",
-    `今日行动：选一件最容易被忽略的小事，在今天结束前处理掉。它不会立刻改变命运，但会让你更稳地接住接下来的机会。`
+    `今日行动：选一件最容易被忽略的小事，在今天结束前处理掉。它不会立刻改变命运，但会让你更稳地接住接下来的机会。`,
+    "",
+    `如果你愿意，把今天最想“补漏”的一件事留在评论里：账单、订阅、AA、还是冲动消费？下一条可以继续拆其中一个方向。`
   ].join("\n");
   const thread = [
-    { index: 1, role: "hook" as const, text: `今日${theme}运势：今天的关键词是「${keyword}」。这不是预测未来，而是提醒你把注意力放回真正能改变节奏的地方。` },
-    { index: 2, role: "context" as const, text: `今天的画面感像「${symbolicImage}」：有些信号已经出现，但还没到立刻下结论的时候。` },
-    { index: 3, role: theme === "财运" ? ("money" as const) : ("career" as const), text: `${theme}方面，别急着追一个看起来很亮的机会。先确认细节、成本和承诺，守住漏洞比冒进更重要。` },
-    { index: 4, role: "relationship" as const, text: `人际上，今天适合把话说清楚。少一点猜测，多一点确认，误会就会少很多。` },
-    { index: 5, role: "risk" as const, text: `风险提醒：不要在情绪高点承诺、消费或做最终决定。给自己留一个复核窗口。` },
-    { index: 6, role: "ritual" as const, text: `今日小仪式：整理一个账单、一个待办，或一段迟迟没说清楚的话。好运感会从秩序感里长出来。` },
-    { index: 7, role: "cta" as const, text: `把你的星座/生肖或今天最关心的主题留在评论里，下一条可以继续拆「财运 / 事业 / 感情」其中一个方向。` }
+    { index: 1, role: "hook" as const, text: `今日${theme}运势：今天的关键词是「${keyword}」。别急着等一笔突然降临的好运，今天真正的好运感，可能来自你少漏掉一笔钱、一句话、一个承诺。` },
+    { index: 2, role: "emotional context" as const, text: `今天的画面感像「${symbolicImage}」：不是大开大合，而是把散掉的注意力收回来。你越想快点看到结果，越需要先确认脚下有没有小洞。` },
+    { index: 3, role: "concrete scene" as const, text: `具体一点：查一眼信用卡账单、订阅扣费、转账手续费、朋友局 AA 或合租分账。它们单独看都不大，但很会偷走稳定感。` },
+    { index: 4, role: "fortune interpretation" as const, text: `${theme}方面，别急着追一个看起来很亮的机会。今天更适合守住已经在你手里的东西，确认细节、成本和承诺。` },
+    { index: 5, role: "practical action" as const, text: `今日动作：挑一笔最近“懒得看”的账，把金额、日期、原因弄明白。不是为了焦虑，是为了重新拿回选择权。` },
+    { index: 6, role: "ritual" as const, text: `今日小仪式：把一个账单、一个待办，或一段迟迟没说清楚的话整理掉。好运感会从秩序感里长出来。` },
+    { index: 7, role: "CTA" as const, text: `你今天最想补哪个漏洞：订阅、AA、账单、还是冲动消费？留一个词，下一条继续拆。` }
   ];
   const dailyFortune: DailyFortuneArtifact = {
     selectedSkill: "daily-fortune-tweet",
     outputType,
     inputSummary: {
-      date: null,
       topic: input.topic,
-      audience: input.audience || null,
+      audience: input.audience || "general X/Twitter audience",
+      tone: input.tone,
       assumptions: ["用户未提供完整出生信息，使用今日集体运势 framing。"]
     },
+    audienceInsight: {
+      corePain: "想变好、想存住钱，但日常小额支出和跨境生活成本让钱悄悄流走。",
+      realScenes: ["信用卡账单和订阅自动扣费被拖到月底才看", "朋友局 AA、合租分账、跨境转账手续费没有及时算清"],
+      emotionalNeed: "需要一种不制造焦虑、但能恢复掌控感的提醒。"
+    },
+    angleOptions: [
+      { angle: "好运不是进账，而是少漏一点", whyItWorks: "把财运落到具体生活场景，避免空泛玄学。", safetyRisk: "需要避免承诺会发财。" },
+      { angle: "今天先收口，不急着扩张", whyItWorks: "有反差，也适合长推文结构。", safetyRisk: "不要给投资建议。" },
+      { angle: "小钱正在决定稳定感", whyItWorks: "贴近海外年轻人的房租、汇率和订阅痛点。", safetyRisk: "避免制造财务恐惧。" }
+    ],
+    selectedAngle: {
+      angle: "好运不是进账，而是少漏一点",
+      reason: "最能把今日财运转译为可执行、非确定性的运营内容。"
+    },
+    hookOptions: [
+      "今天的财运，不一定是多进一笔钱，而是少漏一笔钱。",
+      "如果你最近觉得钱没有乱花，却总是悄悄变少，今天先看这里。",
+      "我更愿意把今天的好运，理解成一种收口能力。",
+      `今天的画面感像「${symbolicImage}」：不是暴富，是补漏。`,
+      "今天先别急着下单、转账或答应请客，给自己一个复核窗口。"
+    ],
     fortuneSpine: {
       keyword,
       symbolicImage,
@@ -447,12 +547,34 @@ function createDailyFortuneFallbackCreative(input: GenerateRequest): TwitterCrea
       coreTension: "想快点看到结果，但今天更适合先补漏洞",
       practicalAdvice
     },
-    longTweet: {
-      title,
-      body: outputType === "thread" ? "" : body,
-      hashtags: ["今日运势", theme, "好运提醒"]
+    draftV1: {
+      longTweet: body,
+      thread
     },
-    thread: outputType === "longTweet" ? [] : thread,
+    operatorCritique: {
+      hookStrength: 4,
+      specificity: 4,
+      audienceFit: 4,
+      emotionalResonance: 4,
+      shareability: 4,
+      saveWorthiness: 4,
+      safety: 5,
+      problems: [],
+      rewriteDirection: "保留补漏角度，继续强化海外中文年轻人的具体财务场景和轻互动。"
+    },
+    final: {
+      longTweet: {
+        title,
+        body: outputType === "thread" ? "" : body,
+        hashtags: ["今日运势", theme, "好运提醒"]
+      },
+      thread: outputType === "longTweet" ? [] : thread
+    },
+    engagementPlan: {
+      cta: "选择一个今天要补的小漏洞。",
+      commentPrompt: "你今天最想补哪个漏洞：订阅、AA、账单、还是冲动消费？",
+      seriesLabel: "今日运势补漏系列"
+    },
     reviewNotes: {
       safetyCheck: ["内容定位为娱乐、灵感和反思，不做确定性预测。", "没有提供投资、医疗、法律或赌博建议。"],
       hypeCheck: ["未使用“稳赚”“一定发财”“马上脱单”等保证性表达。"],
@@ -509,18 +631,23 @@ function readUnknownText(value: unknown): string {
 function buildSkillAwarePrompt(
   input: GenerateRequest,
   skillTrace: RunSkillTrace | undefined,
-  skillMd: string | undefined
+  skillMd: string | undefined,
+  skillReferences: Array<{ title: string; path: string; loadPolicy: string; content: string }>
 ) {
   const contextBlock = "Local TUI client mode. No database workspace context is loaded.";
   if (!skillTrace || !skillMd) return buildPrompt(input, contextBlock);
-  const referencesBlock = skillTrace.loadedReferences.map((reference) => `- ${reference.title} (${reference.path}, ${reference.loadPolicy})`).join("\n");
+  const referencesBlock = skillReferences.map((reference) => `## ${reference.title}
+Source: ${reference.path}
+Load policy: ${reference.loadPolicy}
+
+${reference.content.trim()}`).join("\n\n---\n\n");
   const toolsBlock = skillTrace.allowedTools.map((tool) => `- ${tool.toolName}: ${tool.permission}${tool.enabled ? "" : " (disabled)"}`).join("\n");
   const outputContractBlock =
     skillTrace.skillSlug === "daily-fortune-tweet"
       ? `Return JSON compatible with the SKILL.md Output Contract. Then call finalize_twitter_creative with:
-- tweet: the longTweet body or the first thread tweet, under 280 chars.
-- hashtags: longTweet.hashtags.
-- rationale: summarize fortuneSpine and skill selection.
+- tweet: a short summary of final.longTweet.body or final.thread[0].text, under 280 chars.
+- hashtags: final.longTweet.hashtags.
+- rationale: summarize selectedAngle, fortuneSpine, operatorCritique, and skill selection.
 - safetyNotes: reviewNotes.safetyCheck + reviewNotes.hypeCheck.
 - dailyFortune: the full Daily Fortune JSON artifact.`
       : "tweet, hashtags, rationale, safetyNotes";
@@ -537,7 +664,15 @@ Return only by calling finalize_twitter_creative.`;
 
 function buildReferences(skillTrace?: RunSkillTrace): GenerationReference[] {
   return [
-    ...(skillTrace ? [{ id: skillTrace.skillId, type: "skill" as const, label: `${skillTrace.skillName} v${skillTrace.version}` }] : [])
+    ...(skillTrace ? [{ id: skillTrace.skillId, type: "skill" as const, label: `${skillTrace.skillName} v${skillTrace.version}` }] : []),
+    ...(skillTrace?.loadedReferences
+      .filter((reference) => reference.title !== "Local SKILL.md")
+      .map((reference) => ({
+        id: `${skillTrace.skillId}:${reference.path}`,
+        type: "reference" as const,
+        label: reference.title,
+        citation: reference.path
+      })) ?? [])
   ];
 }
 
@@ -570,18 +705,34 @@ function normalizeDailyFortune(value: unknown): DailyFortuneArtifact | undefined
   if (value.selectedSkill !== "daily-fortune-tweet") return undefined;
   const outputType = readOutputType(value.outputType);
   const inputSummary = isRecord(value.inputSummary) ? value.inputSummary : {};
+  const audienceInsight = isRecord(value.audienceInsight) ? value.audienceInsight : {};
+  const selectedAngle = isRecord(value.selectedAngle) ? value.selectedAngle : {};
   const fortuneSpine = isRecord(value.fortuneSpine) ? value.fortuneSpine : {};
-  const longTweet = isRecord(value.longTweet) ? value.longTweet : {};
+  const draftV1 = isRecord(value.draftV1) ? value.draftV1 : {};
+  const operatorCritique = isRecord(value.operatorCritique) ? value.operatorCritique : {};
+  const final = isRecord(value.final) ? value.final : {};
+  const finalLongTweet = isRecord(final.longTweet) ? final.longTweet : isRecord(value.longTweet) ? value.longTweet : {};
   const reviewNotes = isRecord(value.reviewNotes) ? value.reviewNotes : {};
   return {
     selectedSkill: "daily-fortune-tweet",
     outputType,
     inputSummary: {
-      date: typeof inputSummary.date === "string" ? inputSummary.date : null,
       topic: typeof inputSummary.topic === "string" ? inputSummary.topic : "",
-      audience: typeof inputSummary.audience === "string" ? inputSummary.audience : null,
+      audience: typeof inputSummary.audience === "string" ? inputSummary.audience : "",
+      tone: typeof inputSummary.tone === "string" ? inputSummary.tone : "",
       assumptions: readStringArray(inputSummary.assumptions)
     },
+    audienceInsight: {
+      corePain: readOptionalString(audienceInsight.corePain, ""),
+      realScenes: readStringArray(audienceInsight.realScenes),
+      emotionalNeed: readOptionalString(audienceInsight.emotionalNeed, "")
+    },
+    angleOptions: readAngleOptions(value.angleOptions),
+    selectedAngle: {
+      angle: readOptionalString(selectedAngle.angle, ""),
+      reason: readOptionalString(selectedAngle.reason, "")
+    },
+    hookOptions: readStringArray(value.hookOptions),
     fortuneSpine: {
       keyword: readOptionalString(fortuneSpine.keyword, "今日整理"),
       symbolicImage: readOptionalString(fortuneSpine.symbolicImage, "桌面重新整理"),
@@ -589,12 +740,30 @@ function normalizeDailyFortune(value: unknown): DailyFortuneArtifact | undefined
       coreTension: readOptionalString(fortuneSpine.coreTension, "想快，但今天适合慢一点"),
       practicalAdvice: readOptionalString(fortuneSpine.practicalAdvice, "先把一个小漏洞补上")
     },
-    longTweet: {
-      title: readOptionalString(longTweet.title, "今日运势"),
-      body: readOptionalString(longTweet.body, ""),
-      hashtags: readStringArray(longTweet.hashtags).slice(0, 5)
+    draftV1: {
+      longTweet: readOptionalString(draftV1.longTweet, ""),
+      thread: readThread(draftV1.thread)
     },
-    thread: readThread(value.thread),
+    operatorCritique: {
+      hookStrength: readScore(operatorCritique.hookStrength),
+      specificity: readScore(operatorCritique.specificity),
+      audienceFit: readScore(operatorCritique.audienceFit),
+      emotionalResonance: readScore(operatorCritique.emotionalResonance),
+      shareability: readScore(operatorCritique.shareability),
+      saveWorthiness: readScore(operatorCritique.saveWorthiness),
+      safety: readScore(operatorCritique.safety),
+      problems: readStringArray(operatorCritique.problems),
+      rewriteDirection: readOptionalString(operatorCritique.rewriteDirection, "")
+    },
+    final: {
+      longTweet: {
+        title: readOptionalString(finalLongTweet.title, "今日运势"),
+        body: readOptionalString(finalLongTweet.body, ""),
+        hashtags: readStringArray(finalLongTweet.hashtags).slice(0, 5)
+      },
+      thread: readThread(final.thread ?? value.thread)
+    },
+    engagementPlan: normalizeEngagementPlan(value.engagementPlan),
     reviewNotes: {
       safetyCheck: readStringArray(reviewNotes.safetyCheck),
       hypeCheck: readStringArray(reviewNotes.hypeCheck),
@@ -604,11 +773,14 @@ function normalizeDailyFortune(value: unknown): DailyFortuneArtifact | undefined
 }
 
 function creativeFromDailyFortune(dailyFortune: DailyFortuneArtifact): TwitterCreative {
-  const tweetSource = dailyFortune.longTweet.body || dailyFortune.thread[0]?.text || `${dailyFortune.longTweet.title}\n\n${dailyFortune.fortuneSpine.practicalAdvice}`;
+  const tweetSource =
+    dailyFortune.final.longTweet.body ||
+    dailyFortune.final.thread[0]?.text ||
+    `${dailyFortune.final.longTweet.title}\n\n${dailyFortune.fortuneSpine.practicalAdvice}`;
   return {
     tweet: tweetSource.trim().slice(0, 280),
-    hashtags: dailyFortune.longTweet.hashtags.slice(0, 3),
-    rationale: `Selected daily-fortune-tweet. Keyword: ${dailyFortune.fortuneSpine.keyword}. Advice: ${dailyFortune.fortuneSpine.practicalAdvice}.`,
+    hashtags: dailyFortune.final.longTweet.hashtags.slice(0, 3),
+    rationale: `Selected daily-fortune-tweet. Angle: ${dailyFortune.selectedAngle.angle || "n/a"}. Keyword: ${dailyFortune.fortuneSpine.keyword}. Advice: ${dailyFortune.fortuneSpine.practicalAdvice}.`,
     safetyNotes: [
       ...dailyFortune.reviewNotes.safetyCheck,
       ...dailyFortune.reviewNotes.hypeCheck,
@@ -622,6 +794,37 @@ function readOptionalString(value: unknown, fallback: string) {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
+function readAngleOptions(value: unknown): DailyFortuneArtifact["angleOptions"] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!isRecord(item)) return null;
+      const angle = typeof item.angle === "string" ? item.angle.trim() : "";
+      if (!angle) return null;
+      return {
+        angle,
+        whyItWorks: readOptionalString(item.whyItWorks, ""),
+        safetyRisk: readOptionalString(item.safetyRisk, "")
+      };
+    })
+    .filter((item): item is DailyFortuneArtifact["angleOptions"][number] => Boolean(item));
+}
+
+function readScore(value: unknown) {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return 1;
+  return Math.max(1, Math.min(5, numeric));
+}
+
+function normalizeEngagementPlan(value: unknown): DailyFortuneArtifact["engagementPlan"] {
+  const plan = isRecord(value) ? value : {};
+  return {
+    cta: readOptionalString(plan.cta, ""),
+    commentPrompt: readOptionalString(plan.commentPrompt, ""),
+    seriesLabel: readOptionalString(plan.seriesLabel, "")
+  };
+}
+
 function readOutputType(value: unknown): DailyFortuneArtifact["outputType"] {
   return value === "thread" || value === "both" ? value : "longTweet";
 }
@@ -630,7 +833,7 @@ function readPublishReadiness(value: unknown): DailyFortuneArtifact["reviewNotes
   return value === "reviewed" || value === "publish-ready" ? value : "draft";
 }
 
-function readThread(value: unknown): DailyFortuneArtifact["thread"] {
+function readThread(value: unknown): DailyFortuneThreadItem[] {
   if (!Array.isArray(value)) return [];
   return value
     .map((item, index) => {
@@ -644,12 +847,36 @@ function readThread(value: unknown): DailyFortuneArtifact["thread"] {
         role
       };
     })
-    .filter((item): item is DailyFortuneArtifact["thread"][number] => Boolean(item));
+    .filter((item): item is DailyFortuneThreadItem => Boolean(item));
 }
 
-function readThreadRole(value: unknown): DailyFortuneArtifact["thread"][number]["role"] {
-  const allowed = new Set(["hook", "context", "money", "career", "relationship", "risk", "ritual", "cta"]);
-  return typeof value === "string" && allowed.has(value) ? (value as DailyFortuneArtifact["thread"][number]["role"]) : "context";
+function readThreadRole(value: unknown): DailyFortuneThreadItem["role"] {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase().replace(/[_-]+/g, " ") : "";
+  switch (normalized) {
+    case "hook":
+      return "hook";
+    case "emotional context":
+    case "context":
+      return "emotional context";
+    case "concrete scene":
+    case "scene":
+    case "money":
+    case "career":
+    case "relationship":
+      return "concrete scene";
+    case "fortune interpretation":
+    case "interpretation":
+      return "fortune interpretation";
+    case "practical action":
+    case "action":
+      return "practical action";
+    case "ritual":
+      return "ritual";
+    case "cta":
+      return "CTA";
+    default:
+      return "emotional context";
+  }
 }
 
 function extractJsonObject(value: string) {

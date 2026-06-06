@@ -31,15 +31,45 @@ export interface TwitterCreative {
   media?: CreativeMediaExtension;
 }
 
+export type DailyFortuneThreadRole =
+  | "hook"
+  | "emotional context"
+  | "concrete scene"
+  | "fortune interpretation"
+  | "practical action"
+  | "ritual"
+  | "CTA";
+
+export interface DailyFortuneThreadItem {
+  index: number;
+  text: string;
+  role: DailyFortuneThreadRole;
+}
+
 export interface DailyFortuneArtifact {
   selectedSkill: "daily-fortune-tweet";
   outputType: "longTweet" | "thread" | "both";
   inputSummary: {
-    date: string | null;
     topic: string;
-    audience: string | null;
+    audience: string;
+    tone: string;
     assumptions: string[];
   };
+  audienceInsight: {
+    corePain: string;
+    realScenes: string[];
+    emotionalNeed: string;
+  };
+  angleOptions: Array<{
+    angle: string;
+    whyItWorks: string;
+    safetyRisk: string;
+  }>;
+  selectedAngle: {
+    angle: string;
+    reason: string;
+  };
+  hookOptions: string[];
   fortuneSpine: {
     keyword: string;
     symbolicImage: string;
@@ -47,16 +77,34 @@ export interface DailyFortuneArtifact {
     coreTension: string;
     practicalAdvice: string;
   };
-  longTweet: {
-    title: string;
-    body: string;
-    hashtags: string[];
+  draftV1: {
+    longTweet: string;
+    thread: DailyFortuneThreadItem[];
   };
-  thread: Array<{
-    index: number;
-    text: string;
-    role: "hook" | "context" | "money" | "career" | "relationship" | "risk" | "ritual" | "cta";
-  }>;
+  operatorCritique: {
+    hookStrength: number;
+    specificity: number;
+    audienceFit: number;
+    emotionalResonance: number;
+    shareability: number;
+    saveWorthiness: number;
+    safety: number;
+    problems: string[];
+    rewriteDirection: string;
+  };
+  final: {
+    longTweet: {
+      title: string;
+      body: string;
+      hashtags: string[];
+    };
+    thread: DailyFortuneThreadItem[];
+  };
+  engagementPlan: {
+    cta: string;
+    commentPrompt: string;
+    seriesLabel: string;
+  };
   reviewNotes: {
     safetyCheck: string[];
     hypeCheck: string[];

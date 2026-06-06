@@ -7,6 +7,10 @@ export async function getPiApiKey(provider: string): Promise<string | undefined>
     return getOpenAICodexApiKey();
   }
 
+  if (provider === "deepseek") {
+    return process.env.DEEPSEEK_API_KEY;
+  }
+
   return process.env.OPENAI_API_KEY;
 }
 

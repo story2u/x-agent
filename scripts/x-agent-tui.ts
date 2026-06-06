@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { generateTwitterCreative } from "../src/lib/pi-agent";
@@ -45,7 +45,8 @@ if (args.has("--help") || args.has("-h")) {
   process.exit(0);
 }
 
-const rl = createInterface({ input, output, terminal: true });
+const isInteractive = Boolean(input.isTTY);
+const rl = isInteractive ? createInterface({ input, output, terminal: true }) : undefined;
 const EOF = "__X_AGENT_TUI_EOF__";
 const state: TuiState = {
   skill: "auto",
@@ -59,9 +60,13 @@ const state: TuiState = {
 
 try {
   printIntro();
-  await loop();
+  if (isInteractive) {
+    await loop();
+  } else {
+    await runBatchInput(readFileSync(0, "utf8"));
+  }
 } finally {
-  rl.close();
+  rl?.close();
 }
 
 async function loop() {
@@ -79,11 +84,25 @@ async function loop() {
 }
 
 async function ask(label: string) {
+  if (!rl) return EOF;
   try {
     return await rl.question(label);
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ERR_USE_AFTER_CLOSE") return EOF;
     throw error;
+  }
+}
+
+async function runBatchInput(value: string) {
+  for (const rawLine of value.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith("/")) {
+      const shouldQuit = await handleCommand(line);
+      if (shouldQuit) return;
+      continue;
+    }
+    await runAgent(line);
   }
 }
 
@@ -255,6 +274,9 @@ Environment:
   PI_PROVIDER=openai-codex
   PI_MODEL=gpt-5.5
   OPENAI_CODEX_ACCESS_TOKEN or OPENAI_CODEX_OAUTH_CREDENTIALS
+  PI_PROVIDER=deepseek
+  PI_MODEL=deepseek-v4-pro
+  DEEPSEEK_API_KEY
   X_AGENT_SKILLS_DIR            override local skills directory
 `);
 }
@@ -276,21 +298,28 @@ function printModel() {
   console.log(`codex token ${process.env.OPENAI_CODEX_ACCESS_TOKEN ? "present" : "missing"}`);
   console.log(`codex oauth ${process.env.OPENAI_CODEX_OAUTH_CREDENTIALS ? "present" : "missing"}`);
   console.log(`openai key  ${process.env.OPENAI_API_KEY ? "present" : "missing"}`);
+  console.log(`deepseek key ${process.env.DEEPSEEK_API_KEY ? "present" : "missing"}`);
+  console.log(`deepseek url ${process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com"}`);
 }
 
 function printResult(result: GenerateResponse) {
   const { creative, skillTrace, usage } = result;
   console.log("");
   console.log(`${ansi.green}${ansi.bold}artifact${ansi.reset}`);
-  console.log(`${ansi.bold}tweet${ansi.reset}`);
-  console.log(creative.tweet);
+  if (creative.dailyFortune) {
+    printDailyFortune(creative.dailyFortune);
+    console.log(`\n${ansi.bold}tweet summary${ansi.reset}`);
+    console.log(creative.tweet);
+  } else {
+    console.log(`${ansi.bold}tweet${ansi.reset}`);
+    console.log(creative.tweet);
+  }
   if (creative.hashtags.length) console.log(`\n${ansi.bold}hashtags${ansi.reset}\n${creative.hashtags.join(" ")}`);
   console.log(`\n${ansi.bold}rationale${ansi.reset}\n${creative.rationale}`);
   if (creative.safetyNotes.length) {
     console.log(`\n${ansi.bold}notes${ansi.reset}`);
     for (const note of creative.safetyNotes) console.log(`- ${note}`);
   }
-  if (creative.dailyFortune) printDailyFortune(creative.dailyFortune);
   if (skillTrace) {
     console.log(`\n${ansi.dim}skill ${skillTrace.skillSlug} (${skillTrace.selectionMode}) - ${skillTrace.selectionReason}${ansi.reset}`);
   }
@@ -304,13 +333,35 @@ function printDailyFortune(fortune: NonNullable<GenerateResponse["creative"]["da
   console.log(`\n${ansi.bold}daily fortune${ansi.reset}`);
   console.log(`keyword: ${fortune.fortuneSpine.keyword}`);
   console.log(`image: ${fortune.fortuneSpine.symbolicImage}`);
-  if (fortune.longTweet.body) {
-    console.log(`\n${ansi.bold}long post${ansi.reset}`);
-    console.log(fortune.longTweet.body);
+  if (fortune.audienceInsight.realScenes.length) {
+    console.log(`\n${ansi.bold}audience scenes${ansi.reset}`);
+    for (const scene of fortune.audienceInsight.realScenes) console.log(`- ${scene}`);
   }
-  if (fortune.thread.length) {
+  if (fortune.hookOptions.length) {
+    console.log(`\n${ansi.bold}hook options${ansi.reset}`);
+    fortune.hookOptions.forEach((hook, index) => console.log(`${index + 1}. ${hook}`));
+  }
+  if (fortune.final.longTweet.body) {
+    console.log(`\n${ansi.bold}long post${ansi.reset}`);
+    if (fortune.final.longTweet.title) console.log(`${fortune.final.longTweet.title}\n`);
+    console.log(fortune.final.longTweet.body);
+  }
+  if (fortune.final.thread.length) {
     console.log(`\n${ansi.bold}thread${ansi.reset}`);
-    for (const item of fortune.thread) console.log(`${item.index}. ${item.text}`);
+    for (const item of fortune.final.thread) console.log(`${item.index}. [${item.role}] ${item.text}`);
+    console.log(`\n${ansi.bold}full thread copy${ansi.reset}`);
+    console.log(fortune.final.thread.map((item) => item.text).join("\n\n"));
+  }
+  console.log(`\n${ansi.bold}operator critique${ansi.reset}`);
+  console.log(
+    `hook ${fortune.operatorCritique.hookStrength}/5, specificity ${fortune.operatorCritique.specificity}/5, audience ${fortune.operatorCritique.audienceFit}/5, resonance ${fortune.operatorCritique.emotionalResonance}/5, share ${fortune.operatorCritique.shareability}/5, save ${fortune.operatorCritique.saveWorthiness}/5, safety ${fortune.operatorCritique.safety}/5`
+  );
+  if (fortune.operatorCritique.rewriteDirection) console.log(`rewrite: ${fortune.operatorCritique.rewriteDirection}`);
+  if (fortune.engagementPlan.cta || fortune.engagementPlan.commentPrompt) {
+    console.log(`\n${ansi.bold}engagement${ansi.reset}`);
+    if (fortune.engagementPlan.cta) console.log(`cta: ${fortune.engagementPlan.cta}`);
+    if (fortune.engagementPlan.commentPrompt) console.log(`comment: ${fortune.engagementPlan.commentPrompt}`);
+    if (fortune.engagementPlan.seriesLabel) console.log(`series: ${fortune.engagementPlan.seriesLabel}`);
   }
 }
 

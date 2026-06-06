@@ -62,6 +62,9 @@ npm run tui
 - `OPENAI_CODEX_ACCESS_TOKEN`
 - `OPENAI_CODEX_OAUTH_CREDENTIALS`（单行 JSON）
 - `OPENAI_API_KEY`
+- `DEEPSEEK_API_KEY`
+- `DEEPSEEK_BASE_URL`
+- `DEEPSEEK_REASONING`
 - `X_AGENT_SKILLS_DIR`
 - `X_AGENT_AUDIENCE`
 - `X_AGENT_GOAL`
@@ -73,6 +76,7 @@ npm run tui
 - Skill source of truth 是 `skills/<slug>/SKILL.md`，不得把 skill 编辑和选择迁回 D1。
 - Slash commands 改动必须同步更新本文件和 README。
 - TUI 不暴露图片生成入口。
+- Daily Fortune 渲染时，longTweet 主展示 `final.longTweet.body`，thread 主展示 `final.thread`，顶层 `tweet` 只作为摘要。
 
 ## 测试点
 
@@ -80,3 +84,4 @@ npm run tui
 - `printf '/skills\n' | npm run tui` 能列出本地 skills 并正常退出。
 - `/skill daily-fortune-tweet` 后生成请求包含该 skill slug。
 - 今日运势输入能自动选择 `daily-fortune-tweet`。
+- `/model` 能显示 DeepSeek key/base URL 状态。

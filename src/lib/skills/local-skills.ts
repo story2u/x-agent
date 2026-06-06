@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseSkillMd } from "@/lib/skills/parse-skill";
 import { validateSkillMd } from "@/lib/skills/validate-skill";
-import type { GenerateRequest, RunSkillTrace, SkillValidationResult } from "@/lib/types";
+import type { GenerateRequest, RunSkillTrace, SkillReferenceBinding, SkillValidationResult } from "@/lib/types";
 
 export interface LocalSkill {
   id: string;
@@ -13,6 +13,7 @@ export interface LocalSkill {
   skillMd: string;
   filePath: string;
   allowedTools: string[];
+  references: SkillReferenceBinding[];
   validation: SkillValidationResult;
 }
 
@@ -86,7 +87,14 @@ function buildSkillTrace(selected: LocalSkill, mode: RunSkillTrace["selectionMod
         : mode === "auto"
           ? "User asked for 今日运势 / fortune content."
           : "Default local X/Twitter creative skill.",
-    loadedReferences: [{ title: "Local SKILL.md", path: relativeToProject(selected.filePath), loadPolicy: "always" }],
+    loadedReferences: [
+      { title: "Local SKILL.md", path: relativeToProject(selected.filePath), loadPolicy: "always" },
+      ...selected.references.map((reference) => ({
+        title: reference.title,
+        path: reference.path,
+        loadPolicy: reference.loadPolicy
+      }))
+    ],
     allowedTools: selected.allowedTools.map((toolName) => ({ toolName, permission: "allowed", enabled: true })),
     outputContractValid: selected.validation.errors.length === 0,
     validation: selected.validation
@@ -96,6 +104,17 @@ function buildSkillTrace(selected: LocalSkill, mode: RunSkillTrace["selectionMod
 export async function getSkillVersionSkillMd(versionId: string) {
   const slug = versionId.startsWith("local:") ? versionId.slice("local:".length) : versionId;
   return (await getLocalSkill(slug))?.skillMd;
+}
+
+export async function getSkillVersionReferences(versionId: string) {
+  const slug = versionId.startsWith("local:") ? versionId.slice("local:".length) : versionId;
+  const skill = await getLocalSkill(slug);
+  return skill?.references.map((reference) => ({
+    title: reference.title,
+    path: reference.path,
+    loadPolicy: reference.loadPolicy,
+    content: reference.content
+  })) ?? [];
 }
 
 export function compileSkillPrompt(
@@ -149,6 +168,7 @@ async function readLocalSkill(filePath: string): Promise<LocalSkill | undefined>
     const skillMd = await readFile(filePath, "utf8");
     const parsed = parseSkillMd(skillMd);
     const slug = slugify(String(parsed.frontmatter.name || path.basename(path.dirname(filePath))));
+    const skillVersionId = `local:${slug}`;
     return {
       id: slug,
       slug,
@@ -158,11 +178,56 @@ async function readLocalSkill(filePath: string): Promise<LocalSkill | undefined>
       skillMd,
       filePath,
       allowedTools: readAllowedTools(parsed.frontmatter["allowed-tools"]),
+      references: await readLocalReferences(path.join(path.dirname(filePath), "references"), skillVersionId),
       validation: validateSkillMd(skillMd)
     };
   } catch {
     return undefined;
   }
+}
+
+async function readLocalReferences(referencesDir: string, skillVersionId: string): Promise<SkillReferenceBinding[]> {
+  let entries: string[];
+  try {
+    entries = await readdir(referencesDir);
+  } catch {
+    return [];
+  }
+
+  const references = await Promise.all(
+    entries
+      .filter((entry) => entry.endsWith(".md"))
+      .sort((left, right) => left.localeCompare(right))
+      .map(async (entry) => {
+        const filePath = path.join(referencesDir, entry);
+        const content = await readFile(filePath, "utf8");
+        const title = titleFromReference(entry, content);
+        const relativePath = relativeToProject(filePath);
+        return {
+          id: `${skillVersionId}:${entry}`,
+          skillVersionId,
+          title,
+          path: relativePath,
+          type: referenceType(entry),
+          content,
+          loadPolicy: "always" as const,
+          createdAt: new Date(0).toISOString()
+        };
+      })
+  );
+
+  return references;
+}
+
+function titleFromReference(fileName: string, content: string) {
+  const heading = content.match(/^#\s+(.+)$/m)?.[1]?.trim();
+  return heading || fileName.replace(/\.md$/i, "").replace(/-/g, " ");
+}
+
+function referenceType(fileName: string): SkillReferenceBinding["type"] {
+  if (/policy|safety/i.test(fileName)) return "policy";
+  if (/example|golden/i.test(fileName)) return "example";
+  return "markdown";
 }
 
 function readAllowedTools(value: unknown) {
