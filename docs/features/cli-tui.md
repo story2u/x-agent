@@ -42,6 +42,7 @@ TUI 不访问任何网络后端、不登录、不落地存储。
 /constraints <text>
 /config
 /model
+/model <openai-codex|openai|deepseek> [model]
 /last
 /history
 /clear
@@ -77,6 +78,7 @@ npm run tui
 - Slash commands 改动必须同步更新本文件和 README。
 - TUI 不暴露图片生成入口。
 - Daily Fortune 渲染时，longTweet 主展示 `final.longTweet.body`，thread 主展示 `final.thread`，顶层 `tweet` 只作为摘要。
+- `/model <provider> [model]` 只修改当前 TUI 进程内的 `process.env.PI_PROVIDER` / `process.env.PI_MODEL`，不回写 `.env`。
 
 ## 测试点
 
@@ -85,3 +87,4 @@ npm run tui
 - `/skill daily-fortune-tweet` 后生成请求包含该 skill slug。
 - 今日运势输入能自动选择 `daily-fortune-tweet`。
 - `/model` 能显示 DeepSeek key/base URL 状态。
+- `/model deepseek` 能把当前 TUI session 切到 `deepseek-v4-pro`。

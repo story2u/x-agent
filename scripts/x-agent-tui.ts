@@ -19,6 +19,8 @@ if (existsSync(".env")) {
 
 const TONES: Tone[] = ["technical", "warm", "sharp", "playful", "executive"];
 const OUTPUT_TYPES: NonNullable<GenerateRequest["outputType"]>[] = ["tweet", "thread", "longTweet", "both"];
+const MODEL_PROVIDERS = ["openai-codex", "openai", "deepseek"] as const;
+type ModelProvider = (typeof MODEL_PROVIDERS)[number];
 
 const ansi = {
   bold: "\x1b[1m",
@@ -177,7 +179,7 @@ async function handleCommand(raw: string) {
       printHistory();
       return false;
     case "model":
-      printModel();
+      setModel(value);
       return false;
     default:
       console.log(`${ansi.yellow}unknown command:${ansi.reset} /${command}`);
@@ -265,6 +267,7 @@ Slash commands:
   /constraints <text>
   /config                       show request context
   /model                        show model credential hints
+  /model <provider> [model]      switch provider for this TUI session
   /last                         show last artifact
   /history                      list generated artifacts in this session
   /clear                        clear screen
@@ -283,6 +286,8 @@ Environment:
 
 function printConfig() {
   console.log(`${ansi.bold}config${ansi.reset}`);
+  console.log(`provider    ${process.env.PI_PROVIDER || "openai"}`);
+  console.log(`model       ${process.env.PI_MODEL || "gpt-5.5"}`);
   console.log(`skill       ${state.skill}`);
   console.log(`tone        ${state.tone}`);
   console.log(`output      ${state.outputType}`);
@@ -300,6 +305,57 @@ function printModel() {
   console.log(`openai key  ${process.env.OPENAI_API_KEY ? "present" : "missing"}`);
   console.log(`deepseek key ${process.env.DEEPSEEK_API_KEY ? "present" : "missing"}`);
   console.log(`deepseek url ${process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com"}`);
+  console.log(`${ansi.dim}switch with /model <openai-codex|openai|deepseek> [model]${ansi.reset}`);
+}
+
+function setModel(value: string) {
+  if (!value) {
+    printModel();
+    return;
+  }
+
+  const [providerValue, modelValue, ...extra] = value.split(/\s+/).filter(Boolean);
+  if (extra.length) {
+    console.log(`${ansi.yellow}usage:${ansi.reset} /model <openai-codex|openai|deepseek> [model]`);
+    return;
+  }
+  if (!isModelProvider(providerValue)) {
+    console.log(`provider must be one of: ${MODEL_PROVIDERS.join(", ")}`);
+    return;
+  }
+
+  process.env.PI_PROVIDER = providerValue;
+  process.env.PI_MODEL = modelValue || defaultModelForProvider(providerValue);
+  console.log(`provider = ${process.env.PI_PROVIDER}`);
+  console.log(`model    = ${process.env.PI_MODEL}`);
+  printCredentialHint(providerValue);
+}
+
+function isModelProvider(value: string): value is ModelProvider {
+  return MODEL_PROVIDERS.includes(value as ModelProvider);
+}
+
+function defaultModelForProvider(provider: ModelProvider) {
+  switch (provider) {
+    case "deepseek":
+      return "deepseek-v4-pro";
+    case "openai-codex":
+      return "gpt-5.5-codex";
+    case "openai":
+      return "gpt-5.5";
+  }
+}
+
+function printCredentialHint(provider: ModelProvider) {
+  if (provider === "deepseek" && !process.env.DEEPSEEK_API_KEY) {
+    console.log(`${ansi.yellow}missing:${ansi.reset} DEEPSEEK_API_KEY`);
+  }
+  if (provider === "openai" && !process.env.OPENAI_API_KEY) {
+    console.log(`${ansi.yellow}missing:${ansi.reset} OPENAI_API_KEY`);
+  }
+  if (provider === "openai-codex" && !process.env.OPENAI_CODEX_ACCESS_TOKEN && !process.env.OPENAI_CODEX_OAUTH_CREDENTIALS) {
+    console.log(`${ansi.yellow}missing:${ansi.reset} OPENAI_CODEX_OAUTH_CREDENTIALS or OPENAI_CODEX_ACCESS_TOKEN`);
+  }
 }
 
 function printResult(result: GenerateResponse) {

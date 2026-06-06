@@ -31,6 +31,7 @@ Slash commands：
 /goal 生成适合 X 发布的长推文
 /constraints 不要确定性预测，不要投资建议
 /model
+/model deepseek
 /last
 /history
 /quit
@@ -73,6 +74,7 @@ export DEEPSEEK_API_KEY=...
 ```
 
 DeepSeek 使用 OpenAI-compatible Chat Completions，默认 base URL 为 `https://api.deepseek.com`，可用 `DEEPSEEK_BASE_URL` 覆盖。
+TUI 内也可以用 `/model deepseek` 临时切换到 DeepSeek；该切换只影响当前 TUI 进程，不会回写 `.env`。
 
 ## Local Skills
 

@@ -36,7 +36,7 @@ DEEPSEEK_API_KEY=...
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 ```
 
-DeepSeek 使用 pi-ai `openai-completions` 通道，默认开启 reasoning；可用 `DEEPSEEK_REASONING=false` 关闭。
+DeepSeek 使用 pi-ai `openai-completions` 通道，默认开启 reasoning；可用 `DEEPSEEK_REASONING=false` 关闭。TUI 中可用 `/model deepseek [model]` 临时切换 provider；该命令只影响当前进程，不会写回 `.env`。
 
 ## 开发注意
 
@@ -44,4 +44,4 @@ DeepSeek 使用 pi-ai `openai-completions` 通道，默认开启 reasoning；可
 - 凭据只来自 `.env` / 环境变量，不依赖任何数据库或 Web 设置。
 - `.env` 已 gitignore，本地 credentials 不应提交到 git。
 - `OPENAI_CODEX_OAUTH_CREDENTIALS` 解析失败会抛出明确错误（必须单行）。
-- DeepSeek API key 只通过 `DEEPSEEK_API_KEY` 读取；`/model` 只显示 present/missing。
+- DeepSeek API key 只通过 `DEEPSEEK_API_KEY` 读取；`/model` 只显示 present/missing，`/model deepseek` 只切换 session provider/model。
