@@ -46,6 +46,9 @@ const dailyFortuneSchema = Type.Object(
     angleOptions: Type.Array(
       Type.Object({
         angle: Type.String(),
+        thesis: Type.String(),
+        emotionalHook: Type.String(),
+        concreteScene: Type.String(),
         whyItWorks: Type.String(),
         safetyRisk: Type.String()
       }),
@@ -55,13 +58,29 @@ const dailyFortuneSchema = Type.Object(
       angle: Type.String(),
       reason: Type.String()
     }),
-    hookOptions: Type.Array(Type.String(), { minItems: 5 }),
+    hookOptions: Type.Array(
+      Type.Object({
+        type: Type.Union([
+          Type.Literal("contrarian"),
+          Type.Literal("scene"),
+          Type.Literal("confession"),
+          Type.Literal("mystical-image"),
+          Type.Literal("practical-warning")
+        ]),
+        text: Type.String(),
+        whyItWorks: Type.String()
+      }),
+      { minItems: 5 }
+    ),
     fortuneSpine: Type.Object({
       keyword: Type.String({ description: "今日关键词，2-4 字，有画面感（如 收口 / 补漏 / 雾散）。" }),
       symbolicImage: Type.String({ description: "一个象征意象（如 钱袋漏风 / 桌面重新整理 / 旧消息浮出水面）。" }),
+      audienceSpecificScene: Type.String({ description: "和受众强相关的具体场景。" }),
       emotionalWeather: Type.String(),
       coreTension: Type.String(),
-      practicalAdvice: Type.String({ description: "具体、可执行、非确定性的温和提醒。" })
+      practicalAdvice: Type.String({ description: "具体、可执行、非确定性的温和提醒。" }),
+      tinyRitual: Type.String({ description: "一个轻量、不迷信、不保证结果的小仪式。" }),
+      closingImage: Type.String({ description: "柔和的结尾意象。" })
     }),
     draftV1: Type.Object({
       longTweet: Type.String({ description: "第一版长推草稿；thread-only 时可为空字符串。" }),
@@ -525,27 +544,51 @@ function createDailyFortuneFallbackCreative(input: GenerateRequest): TwitterCrea
       emotionalNeed: "需要一种不制造焦虑、但能恢复掌控感的提醒。"
     },
     angleOptions: [
-      { angle: "好运不是进账，而是少漏一点", whyItWorks: "把财运落到具体生活场景，避免空泛玄学。", safetyRisk: "需要避免承诺会发财。" },
-      { angle: "今天先收口，不急着扩张", whyItWorks: "有反差，也适合长推文结构。", safetyRisk: "不要给投资建议。" },
-      { angle: "小钱正在决定稳定感", whyItWorks: "贴近海外年轻人的房租、汇率和订阅痛点。", safetyRisk: "避免制造财务恐惧。" }
+      {
+        angle: "好运不是进账，而是少漏一点",
+        thesis: "今天的好运感来自减少漏损，而不是保证收入增加。",
+        emotionalHook: "钱不是乱花掉的，是在疲惫里安静漏走的。",
+        concreteScene: "信用卡账单、合租分账、朋友局 AA 和订阅扣费。",
+        whyItWorks: "把财运落到具体生活场景，避免空泛玄学。",
+        safetyRisk: "需要避免承诺会发财。"
+      },
+      {
+        angle: "今天先收口，不急着扩张",
+        thesis: "先复核承诺和支出，再考虑新计划。",
+        emotionalHook: "越想快点变好，越容易忽略小洞。",
+        concreteScene: "跨境转账前看手续费，答应请客前确认预算。",
+        whyItWorks: "有反差，也适合长推文结构。",
+        safetyRisk: "不要给投资建议。"
+      },
+      {
+        angle: "小钱正在决定稳定感",
+        thesis: "小额重复支出会放大海外生活的不确定感。",
+        emotionalHook: "明明没有大手大脚，月底还是觉得心虚。",
+        concreteScene: "咖啡、外卖、打车和奖励自己式下单。",
+        whyItWorks: "贴近海外年轻人的房租、汇率和订阅痛点。",
+        safetyRisk: "避免制造财务恐惧。"
+      }
     ],
     selectedAngle: {
       angle: "好运不是进账，而是少漏一点",
       reason: "最能把今日财运转译为可执行、非确定性的运营内容。"
     },
     hookOptions: [
-      "今天的财运，不一定是多进一笔钱，而是少漏一笔钱。",
-      "如果你最近觉得钱没有乱花，却总是悄悄变少，今天先看这里。",
-      "我更愿意把今天的好运，理解成一种收口能力。",
-      `今天的画面感像「${symbolicImage}」：不是暴富，是补漏。`,
-      "今天先别急着下单、转账或答应请客，给自己一个复核窗口。"
+      { type: "contrarian", text: "今天的财运，不一定是多进一笔钱，而是少漏一笔钱。", whyItWorks: "反转常见财运预期，安全且具体。" },
+      { type: "scene", text: "如果你最近觉得钱没有乱花，却总是悄悄变少，今天先看这里。", whyItWorks: "直接命中日常漏钱感。" },
+      { type: "confession", text: "我更愿意把今天的好运，理解成一种收口能力。", whyItWorks: "形成清醒温柔的账号人格。" },
+      { type: "mystical-image", text: `今天的画面感像「${symbolicImage}」：不是暴富，是补漏。`, whyItWorks: "有玄学画面，但不承诺结果。" },
+      { type: "practical-warning", text: "今天先别急着下单、转账或答应请客，给自己一个复核窗口。", whyItWorks: "落到可执行动作。" }
     ],
     fortuneSpine: {
       keyword,
       symbolicImage,
+      audienceSpecificScene: "信用卡账单、朋友局 AA、订阅扣费和跨境转账手续费一起挤到月底。",
       emotionalWeather: "期待好运，但需要稳定感",
       coreTension: "想快点看到结果，但今天更适合先补漏洞",
-      practicalAdvice
+      practicalAdvice,
+      tinyRitual: "睡前把一笔看不懂的支出备注清楚。",
+      closingImage: "像把漏风的钱袋轻轻系紧。"
     },
     draftV1: {
       longTweet: body,
@@ -732,13 +775,16 @@ function normalizeDailyFortune(value: unknown): DailyFortuneArtifact | undefined
       angle: readOptionalString(selectedAngle.angle, ""),
       reason: readOptionalString(selectedAngle.reason, "")
     },
-    hookOptions: readStringArray(value.hookOptions),
+    hookOptions: readHookOptions(value.hookOptions),
     fortuneSpine: {
       keyword: readOptionalString(fortuneSpine.keyword, "今日整理"),
       symbolicImage: readOptionalString(fortuneSpine.symbolicImage, "桌面重新整理"),
+      audienceSpecificScene: readOptionalString(fortuneSpine.audienceSpecificScene, ""),
       emotionalWeather: readOptionalString(fortuneSpine.emotionalWeather, "需要稳定感"),
       coreTension: readOptionalString(fortuneSpine.coreTension, "想快，但今天适合慢一点"),
-      practicalAdvice: readOptionalString(fortuneSpine.practicalAdvice, "先把一个小漏洞补上")
+      practicalAdvice: readOptionalString(fortuneSpine.practicalAdvice, "先把一个小漏洞补上"),
+      tinyRitual: readOptionalString(fortuneSpine.tinyRitual, ""),
+      closingImage: readOptionalString(fortuneSpine.closingImage, "")
     },
     draftV1: {
       longTweet: readOptionalString(draftV1.longTweet, ""),
@@ -803,11 +849,62 @@ function readAngleOptions(value: unknown): DailyFortuneArtifact["angleOptions"] 
       if (!angle) return null;
       return {
         angle,
+        thesis: readOptionalString(item.thesis, ""),
+        emotionalHook: readOptionalString(item.emotionalHook, ""),
+        concreteScene: readOptionalString(item.concreteScene, ""),
         whyItWorks: readOptionalString(item.whyItWorks, ""),
         safetyRisk: readOptionalString(item.safetyRisk, "")
       };
     })
     .filter((item): item is DailyFortuneArtifact["angleOptions"][number] => Boolean(item));
+}
+
+function readHookOptions(value: unknown): DailyFortuneArtifact["hookOptions"] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item, index) => {
+      if (typeof item === "string") {
+        const text = item.trim();
+        if (!text) return null;
+        return {
+          type: fallbackHookType(index),
+          text,
+          whyItWorks: ""
+        };
+      }
+      if (!isRecord(item)) return null;
+      const text = typeof item.text === "string" ? item.text.trim() : "";
+      if (!text) return null;
+      return {
+        type: readHookType(item.type, index),
+        text,
+        whyItWorks: readOptionalString(item.whyItWorks, "")
+      };
+    })
+    .filter((item): item is DailyFortuneArtifact["hookOptions"][number] => Boolean(item));
+}
+
+function readHookType(value: unknown, index: number): DailyFortuneArtifact["hookOptions"][number]["type"] {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase().replace(/_/g, "-") : "";
+  switch (normalized) {
+    case "contrarian":
+    case "scene":
+    case "confession":
+    case "mystical-image":
+    case "practical-warning":
+      return normalized;
+    case "mystical image":
+      return "mystical-image";
+    case "practical warning":
+      return "practical-warning";
+    default:
+      return fallbackHookType(index);
+  }
+}
+
+function fallbackHookType(index: number): DailyFortuneArtifact["hookOptions"][number]["type"] {
+  const fallback = ["contrarian", "scene", "confession", "mystical-image", "practical-warning"][index] as DailyFortuneArtifact["hookOptions"][number]["type"] | undefined;
+  return fallback ?? "scene";
 }
 
 function readScore(value: unknown) {

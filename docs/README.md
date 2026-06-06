@@ -17,7 +17,7 @@
 - `features/cli-tui.md`：CLI/TUI 主操作入口。
 - `features/text-agent.md`：X/Twitter 文本生成 agent。
 - `features/model-oauth.md`：ChatGPT Plus/Pro OAuth、OpenAI API key、DeepSeek API key 模型凭据（基于环境变量 / `.env`）。
-- `features/workspace-harness.md`：本地 Markdown skills 与 references 的组织、加载与选择。
+- `features/workspace-harness.md`：本地 Markdown skills、references 与 evals 的组织、加载与选择。
 
 ## AI 开发入口
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { generateTwitterCreative } from "../src/lib/pi-agent";
@@ -48,7 +49,18 @@ if (args.has("--help") || args.has("-h")) {
 }
 
 const isInteractive = Boolean(input.isTTY);
-const rl = isInteractive ? createInterface({ input, output, terminal: true }) : undefined;
+const historyFile = resolveHistoryFile();
+let pendingInputHistory = readTuiInputHistory(historyFile);
+const rl = isInteractive
+  ? createInterface({
+      input,
+      output,
+      terminal: true,
+      history: pendingInputHistory,
+      historySize: readHistoryLimit(),
+      removeHistoryDuplicates: true
+    })
+  : undefined;
 const EOF = "__X_AGENT_TUI_EOF__";
 const state: TuiState = {
   skill: "auto",
@@ -62,12 +74,16 @@ const state: TuiState = {
 
 try {
   printIntro();
+  rl?.on("history", (history) => {
+    pendingInputHistory = history;
+  });
   if (isInteractive) {
     await loop();
   } else {
     await runBatchInput(readFileSync(0, "utf8"));
   }
 } finally {
+  if (isInteractive) saveTuiInputHistory(historyFile, pendingInputHistory);
   rl?.close();
 }
 
@@ -281,6 +297,8 @@ Environment:
   PI_MODEL=deepseek-v4-pro
   DEEPSEEK_API_KEY
   X_AGENT_SKILLS_DIR            override local skills directory
+  X_AGENT_TUI_HISTORY_FILE      override input history file
+  X_AGENT_TUI_HISTORY_LIMIT     default 200
 `);
 }
 
@@ -395,7 +413,13 @@ function printDailyFortune(fortune: NonNullable<GenerateResponse["creative"]["da
   }
   if (fortune.hookOptions.length) {
     console.log(`\n${ansi.bold}hook options${ansi.reset}`);
-    fortune.hookOptions.forEach((hook, index) => console.log(`${index + 1}. ${hook}`));
+    fortune.hookOptions.forEach((hook, index) => console.log(`${index + 1}. [${hook.type}] ${hook.text}`));
+  }
+  if (fortune.fortuneSpine.tinyRitual || fortune.fortuneSpine.closingImage) {
+    console.log(`\n${ansi.bold}spine details${ansi.reset}`);
+    if (fortune.fortuneSpine.audienceSpecificScene) console.log(`scene: ${fortune.fortuneSpine.audienceSpecificScene}`);
+    if (fortune.fortuneSpine.tinyRitual) console.log(`ritual: ${fortune.fortuneSpine.tinyRitual}`);
+    if (fortune.fortuneSpine.closingImage) console.log(`closing: ${fortune.fortuneSpine.closingImage}`);
   }
   if (fortune.final.longTweet.body) {
     console.log(`\n${ansi.bold}long post${ansi.reset}`);
@@ -444,4 +468,36 @@ function printHistory() {
 function promptLabel() {
   const skill = state.skill === "auto" ? "auto" : state.skill;
   return `${ansi.bold}x-agent${ansi.reset} ${ansi.dim}${skill}/${state.outputType}/${state.tone}${ansi.reset} › `;
+}
+
+function resolveHistoryFile() {
+  return process.env.X_AGENT_TUI_HISTORY_FILE ? path.resolve(process.env.X_AGENT_TUI_HISTORY_FILE) : path.join(process.cwd(), ".x-agent-tui-history");
+}
+
+function readHistoryLimit() {
+  const raw = Number(process.env.X_AGENT_TUI_HISTORY_LIMIT);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 200;
+}
+
+function readTuiInputHistory(filePath: string) {
+  try {
+    if (!existsSync(filePath)) return [];
+    return readFileSync(filePath, "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(0, readHistoryLimit());
+  } catch {
+    return [];
+  }
+}
+
+function saveTuiInputHistory(filePath: string, history: string[]) {
+  try {
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    const cleaned = Array.from(new Set(history.map((line) => line.trim()).filter(Boolean))).slice(0, readHistoryLimit());
+    writeFileSync(filePath, `${cleaned.join("\n")}${cleaned.length ? "\n" : ""}`, "utf8");
+  } catch {
+    // TUI history should never block normal command generation.
+  }
 }

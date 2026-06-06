@@ -55,3 +55,72 @@ Example patterns:
 - "今日财运不错"
 - "一定发财"
 - "马上转运"
+
+## Weak Hook Rewrites
+
+Weak:
+
+```text
+今日财运关键词：补漏。
+```
+
+Why weak:
+
+- no conflict
+- no audience scene
+- no pause or tension
+- sounds like a generic almanac line
+
+Rewrite:
+
+```text
+今天的财运，不是让你暴富。
+
+而是让你发现：
+你不是赚得太少，
+是有几个小洞，正在安静地漏钱。
+```
+
+Weak:
+
+```text
+今日事业运不错，适合努力工作。
+```
+
+Why weak:
+
+- too generic
+- no emotional truth
+- gives no concrete action
+
+Rewrite:
+
+```text
+今天的事业运，不是叫你再多扛一点。
+
+而是提醒你：
+有些任务不是你做不好，
+是边界一开始就没被说清楚。
+```
+
+Weak:
+
+```text
+今天适合整理财务。
+```
+
+Why weak:
+
+- practical but not scroll-stopping
+- lacks symbolic image
+- lacks reader recognition
+
+Rewrite:
+
+```text
+打开信用卡账单前那几秒，
+其实就是今天的财运入口。
+
+你不需要责怪自己，
+只需要把一个小洞先看清楚。
+```

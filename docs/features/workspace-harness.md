@@ -7,6 +7,7 @@ Workspace Harness 在 MVP 中收敛为本地 Markdown skill 组织：
 ```text
 skills/<slug>/SKILL.md
 skills/<slug>/references/*.md
+skills/<slug>/evals/*.json
 ```
 
 Skills 不再存储到 D1，也不再通过 Web Skill Studio 编辑。TUI 通过 `/skills`、`/skill` 读取和选择本地 skill。
@@ -22,11 +23,13 @@ Skills 不再存储到 D1，也不再通过 Web Skill Studio 编辑。TUI 通过
 
 - Local skills：`skills/*/SKILL.md`
 - References：`skills/*/references/*.md`
+- Evals：`skills/*/evals/*.json`
 - Loader：`src/lib/skills/local-skills.ts`
 - Parser：`src/lib/skills/parse-skill.ts`
 - Validator：`src/lib/skills/validate-skill.ts`
 - TUI：`scripts/x-agent-tui.ts`
 - Agent：`src/lib/pi-agent.ts`
+- Eval runner：`scripts/eval-skills.ts`
 - Tests：`src/lib/__tests__/skills.test.ts`、`src/lib/__tests__/daily-fortune-evals.test.ts`
 
 ## SKILL.md 要求
@@ -40,6 +43,17 @@ Skills 不再存储到 D1，也不再通过 Web Skill Studio 编辑。TUI 通过
 - Workflow / Process section
 - Output Contract section
 - Review Checklist / Safety Rules section
+
+## Evals
+
+Skill eval specs live in `skills/<slug>/evals/*.json` and define machine-checkable quality rules such as required fields, minimum hook/angle counts, forbidden phrases, minimum operator scores, long-tweet length, and thread roles.
+
+Commands:
+
+```bash
+npm run eval:skills
+npm run eval:skill -- daily-fortune-tweet
+```
 
 ## Runtime 集成
 
@@ -58,3 +72,4 @@ Skills 不再存储到 D1，也不再通过 Web Skill Studio 编辑。TUI 通过
 - 不要把 skill source of truth 写回 D1。
 - 修改 validation 规则时要更新 `src/lib/__tests__/skills.test.ts`。
 - References 仅支持本地 Markdown 文件和 prompt 注入；Knowledge Base、Tools / Extensions 暂不作为 MVP TUI 功能。
+- Evals 当前校验规则文件结构和质量门配置；真实模型输出回放可在后续 runner 中扩展。

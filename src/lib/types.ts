@@ -46,6 +46,8 @@ export interface DailyFortuneThreadItem {
   role: DailyFortuneThreadRole;
 }
 
+export type DailyFortuneHookType = "contrarian" | "scene" | "confession" | "mystical-image" | "practical-warning";
+
 export interface DailyFortuneArtifact {
   selectedSkill: "daily-fortune-tweet";
   outputType: "longTweet" | "thread" | "both";
@@ -62,6 +64,9 @@ export interface DailyFortuneArtifact {
   };
   angleOptions: Array<{
     angle: string;
+    thesis: string;
+    emotionalHook: string;
+    concreteScene: string;
     whyItWorks: string;
     safetyRisk: string;
   }>;
@@ -69,13 +74,20 @@ export interface DailyFortuneArtifact {
     angle: string;
     reason: string;
   };
-  hookOptions: string[];
+  hookOptions: Array<{
+    type: DailyFortuneHookType;
+    text: string;
+    whyItWorks: string;
+  }>;
   fortuneSpine: {
     keyword: string;
     symbolicImage: string;
+    audienceSpecificScene: string;
     emotionalWeather: string;
     coreTension: string;
     practicalAdvice: string;
+    tinyRitual: string;
+    closingImage: string;
   };
   draftV1: {
     longTweet: string;

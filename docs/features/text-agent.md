@@ -12,7 +12,7 @@ MVP 只生成 X/Twitter 文本 artifact，不生成图片，不做 Web 审批流
 - `safetyNotes`
 - `dailyFortune?`
 
-`dailyFortune` 包含运营级内容流水线字段：audience insight、angle options、hook options、draftV1、operator critique、final longTweet/thread、engagement plan 和 review notes。保留 `TwitterCreative.media` 扩展位，但 TUI 不展示。
+`dailyFortune` 包含运营级内容流水线字段：audience insight、结构化 angle options、结构化 hook options、扩展 fortune spine、draftV1、operator critique、final longTweet/thread、engagement plan 和 review notes。保留 `TwitterCreative.media` 扩展位，但 TUI 不展示。
 
 ## Local Skill Runtime
 
@@ -28,7 +28,7 @@ MVP 只生成 X/Twitter 文本 artifact，不生成图片，不做 Web 审批流
 - 模型硬错误以 `stopReason: "error"/"aborted"` 返回；`pi-agent` 抛出真实原因（凭据未配置、OAuth 刷新失败等），不再用保底模板掩盖。
 - 模型返回文本但未调用 `finalize_twitter_creative` 时，从 transcript 恢复；都失败才用保底 artifact。
 - `maxTokens` 默认 8192，可用 `PI_MAX_TOKENS` 覆盖。
-- `finalize_twitter_creative` 的 `dailyFortune` 字段使用严格 TypeBox schema（非 `Type.Any`），强约束模型输出结构；`daily-fortune-tweet/SKILL.md` 和 `references/*.md` 内置运营策略、评分规则和黄金样例以拉高生成质量。
+- `finalize_twitter_creative` 的 `dailyFortune` 字段使用严格 TypeBox schema（非 `Type.Any`），强约束模型输出结构；`daily-fortune-tweet/SKILL.md`、`references/*.md` 和 `evals/*.json` 内置运营策略、评分规则、黄金样例和机器质量门。
 - 模型 provider 支持 `openai-codex`、`openai` 和 `deepseek`；DeepSeek 走 `openai-completions`。
 
 ## Daily Fortune Artifact
@@ -38,9 +38,9 @@ MVP 只生成 X/Twitter 文本 artifact，不生成图片，不做 Web 审批流
 - longTweet：标题、正文、hashtags。
 - thread：多推文结构。
 - audienceInsight：核心痛点、真实场景、情绪需求。
-- angleOptions / selectedAngle：3-5 个角度和最终选择。
-- hookOptions：5 个 hook 备选。
-- fortuneSpine：keyword、symbolic image、emotional weather、core tension、practical advice。
+- angleOptions / selectedAngle：3-5 个角度和最终选择；每个 angle 包含 thesis、emotionalHook、concreteScene、whyItWorks、safetyRisk。
+- hookOptions：5 个 hook 备选；每个 hook 包含 type、text、whyItWorks。
+- fortuneSpine：keyword、symbolic image、audience-specific scene、emotional weather、core tension、practical advice、tiny ritual、closing image。
 - draftV1：初稿。
 - operatorCritique：hook、specificity、audience fit、resonance、shareability、save-worthiness、safety 评分和改写方向。
 - final：最终 `longTweet` 和 `thread`。
@@ -59,6 +59,8 @@ TUI 会渲染 Daily Fortune 的 long post、thread、fortune spine、operator cr
 - Types：`src/lib/types.ts`
 - Validation：`src/lib/validation.ts`
 - Tests：`src/lib/__tests__/pi-agent.test.ts`、`src/lib/__tests__/validation.test.ts`、`src/lib/__tests__/skills.test.ts`、`src/lib/__tests__/daily-fortune-evals.test.ts`
+- Skill eval specs：`skills/daily-fortune-tweet/evals/*.json`
+- Eval runner：`scripts/eval-skills.ts`
 
 ## 操作面规则
 
@@ -74,6 +76,7 @@ TUI 会渲染 Daily Fortune 的 long post、thread、fortune spine、operator cr
 - 修改输出结构后必须同步更新 `docs/数据流程.md`。
 - Fortune 内容必须定位为娱乐、灵感、反思，不得做确定性预测、投资建议、医疗建议、法律建议或保证性承诺。
 - Daily Fortune references 修改后要确认 `resolveRuntimeSkill` trace 能列出并加载 reference 内容。
+- Daily Fortune Output Contract 修改后要同步更新 TypeBox schema、normalizer、fallback artifact、eval JSON 和测试 fixture。
 
 ## 测试点
 
@@ -85,3 +88,4 @@ TUI 会渲染 Daily Fortune 的 long post、thread、fortune spine、operator cr
 - `money-longtweet-overseas-youth`：长推正文不少于 600 个中文字符，至少包含 2 个海外财务场景，scores 全部 >= 4。
 - `unsafe-rich-guarantee`：不承诺暴富，安全审查标记原始风险。
 - `fortune-thread-career`：thread 5-8 条且 roles 完整。
+- `npm run eval:skills`：校验 skill eval specs 的规则配置完整性。

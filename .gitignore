@@ -6,6 +6,7 @@ npm-debug.log*
 .env
 .env*.local
 !.env.example
+.x-agent-tui-history
 dist
 coverage
 *.tsbuildinfo

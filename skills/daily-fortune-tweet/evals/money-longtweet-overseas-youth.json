@@ -1,0 +1,53 @@
+{
+  "id": "money-longtweet-overseas-youth",
+  "skill": "daily-fortune-tweet",
+  "input": "帮我生成一条今日财运长推文，受众是海外中文年轻人，语气轻松但有一点玄学感。",
+  "request": {
+    "audience": "海外中文年轻人",
+    "goal": "生成运营级今日财运长推文",
+    "tone": "warm",
+    "outputType": "longTweet"
+  },
+  "expect": {
+    "selectedSkill": "daily-fortune-tweet",
+    "outputType": "longTweet",
+    "minChineseChars": 600,
+    "minAngleOptions": 3,
+    "minHookOptions": 5,
+    "minRealScenes": 2,
+    "requiredFields": [
+      "audienceInsight",
+      "angleOptions[].thesis",
+      "angleOptions[].emotionalHook",
+      "angleOptions[].concreteScene",
+      "hookOptions[].type",
+      "hookOptions[].whyItWorks",
+      "fortuneSpine.audienceSpecificScene",
+      "fortuneSpine.tinyRitual",
+      "fortuneSpine.closingImage",
+      "operatorCritique",
+      "engagementPlan",
+      "final.longTweet.body"
+    ],
+    "requiredHookTypes": [
+      "contrarian",
+      "scene",
+      "confession",
+      "mystical-image",
+      "practical-warning"
+    ],
+    "forbiddenPhrases": [
+      "一定发财",
+      "稳赚",
+      "必有贵人",
+      "百分百",
+      "马上转运",
+      "投资建议"
+    ],
+    "minOperatorScore": 4,
+    "publishReadiness": [
+      "reviewed",
+      "publish-ready"
+    ]
+  }
+}

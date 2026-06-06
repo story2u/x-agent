@@ -84,27 +84,51 @@ describe("daily fortune output recovery", () => {
           emotionalNeed: "需要温和提醒重新拿回掌控感。"
         },
         angleOptions: [
-          { angle: "好运是少漏一点", whyItWorks: "具体可执行。", safetyRisk: "避免承诺发财。" },
-          { angle: "先收口再扩张", whyItWorks: "有反差。", safetyRisk: "避免投资建议。" },
-          { angle: "小钱决定稳定感", whyItWorks: "贴近海外生活。", safetyRisk: "避免制造焦虑。" }
+          {
+            angle: "好运是少漏一点",
+            thesis: "财运不是保证进账，而是减少漏损。",
+            emotionalHook: "钱在疲惫里悄悄变少。",
+            concreteScene: "信用卡账单、合租分账和朋友局 AA。",
+            whyItWorks: "具体可执行。",
+            safetyRisk: "避免承诺发财。"
+          },
+          {
+            angle: "先收口再扩张",
+            thesis: "先复核支出和承诺，再追新机会。",
+            emotionalHook: "越想变好越容易忽略小洞。",
+            concreteScene: "订阅自动扣费和跨境转账手续费。",
+            whyItWorks: "有反差。",
+            safetyRisk: "避免投资建议。"
+          },
+          {
+            angle: "小钱决定稳定感",
+            thesis: "小额重复支出会偷走掌控感。",
+            emotionalHook: "每笔都不大，月底一起出现就很刺眼。",
+            concreteScene: "咖啡、外卖、打车和奖励自己式下单。",
+            whyItWorks: "贴近海外生活。",
+            safetyRisk: "避免制造焦虑。"
+          }
         ],
         selectedAngle: {
           angle: "好运是少漏一点",
           reason: "最贴近财运和用户痛点。"
         },
         hookOptions: [
-          "今天的财运，不一定是多进一笔钱，而是少漏一笔钱。",
-          "打开信用卡账单前那几秒，就是今天的财运入口。",
-          "我更愿意把今天的好运理解成收口能力。",
-          "今天的画面像一个漏风的钱袋。",
-          "今天先别在情绪高点下单。"
+          { type: "contrarian", text: "今天的财运，不一定是多进一笔钱，而是少漏一笔钱。", whyItWorks: "反转财运预期。" },
+          { type: "scene", text: "打开信用卡账单前那几秒，就是今天的财运入口。", whyItWorks: "进入具体场景。" },
+          { type: "confession", text: "我更愿意把今天的好运理解成收口能力。", whyItWorks: "形成账号人格。" },
+          { type: "mystical-image", text: "今天的画面像一个漏风的钱袋。", whyItWorks: "有意象但不承诺。" },
+          { type: "practical-warning", text: "今天先别在情绪高点下单。", whyItWorks: "给出行动提醒。" }
         ],
         fortuneSpine: {
           keyword: "补漏",
           symbolicImage: "钱袋漏风",
+          audienceSpecificScene: "信用卡账单、合租分账和朋友局 AA。",
           emotionalWeather: "期待好运",
           coreTension: "想赚钱，但今天先守住漏洞",
-          practicalAdvice: "避免冲动消费，先确认信息再下决定"
+          practicalAdvice: "避免冲动消费，先确认信息再下决定",
+          tinyRitual: "睡前备注一笔支出。",
+          closingImage: "像把钱袋的小洞轻轻补上。"
         },
         draftV1: {
           longTweet: "今天更适合补漏洞。",

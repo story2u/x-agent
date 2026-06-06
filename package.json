@@ -8,6 +8,8 @@
     "build": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
+    "eval:skills": "tsx scripts/eval-skills.ts",
+    "eval:skill": "tsx scripts/eval-skills.ts",
     "chatgpt:oauth": "node scripts/chatgpt-oauth-login.mjs",
     "tui": "tsx scripts/x-agent-tui.ts",
     "cli": "tsx scripts/x-agent-tui.ts"

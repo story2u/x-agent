@@ -1,0 +1,55 @@
+{
+  "id": "fortune-thread-career",
+  "skill": "daily-fortune-tweet",
+  "input": "写一个今日事业运势 thread，受众是海外中文年轻职场人，语气温柔一点。",
+  "request": {
+    "audience": "海外中文年轻职场人",
+    "goal": "生成今日事业运势 thread",
+    "tone": "warm",
+    "outputType": "thread"
+  },
+  "expect": {
+    "selectedSkill": "daily-fortune-tweet",
+    "outputType": "thread",
+    "minAngleOptions": 3,
+    "minHookOptions": 5,
+    "minRealScenes": 2,
+    "requiredFields": [
+      "audienceInsight",
+      "angleOptions[].concreteScene",
+      "hookOptions[].whyItWorks",
+      "fortuneSpine.audienceSpecificScene",
+      "operatorCritique",
+      "engagementPlan",
+      "final.thread"
+    ],
+    "requiredHookTypes": [
+      "contrarian",
+      "scene",
+      "confession",
+      "mystical-image",
+      "practical-warning"
+    ],
+    "requiredThreadRoles": [
+      "hook",
+      "emotional context",
+      "concrete scene",
+      "fortune interpretation",
+      "practical action",
+      "ritual",
+      "CTA"
+    ],
+    "forbiddenPhrases": [
+      "一定升职",
+      "必成功",
+      "保证录用",
+      "必有贵人",
+      "马上转运"
+    ],
+    "minOperatorScore": 4,
+    "publishReadiness": [
+      "reviewed",
+      "publish-ready"
+    ]
+  }
+}

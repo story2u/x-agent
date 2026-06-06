@@ -89,6 +89,9 @@ Generate 3-5 angle options before final writing.
 Each option must include:
 
 - `angle`
+- `thesis`
+- `emotionalHook`
+- `concreteScene`
 - `whyItWorks`
 - `safetyRisk`
 
@@ -111,6 +114,12 @@ Generate 5 hook options before final writing:
 - mystical image hook
 - practical warning hook
 
+Each hook option must be an object with:
+
+- `type`: `contrarian | scene | confession | mystical-image | practical-warning`
+- `text`
+- `whyItWorks`
+
 Avoid generic openings:
 
 - 今日运势关键词：
@@ -125,9 +134,12 @@ Build a concise spine:
 
 - keyword: 2-4 Chinese characters, memorable and visual.
 - symbolicImage: one image such as 钱袋漏风 / 雾正在散 / 门半开 / 桌面重新整理.
+- audienceSpecificScene: one concrete scene tied to the audience.
 - emotionalWeather: the user's mood state.
 - coreTension: the conflict between desire and reality.
 - practicalAdvice: specific, behavioral, non-deterministic.
+- tinyRitual: a small symbolic action, not superstition and not a promise.
+- closingImage: a soft final image.
 
 ## Long Tweet Standard
 
@@ -238,6 +250,9 @@ Return valid JSON in `dailyFortune`, then call `finalize_twitter_creative`.
   "angleOptions": [
     {
       "angle": "string",
+      "thesis": "string",
+      "emotionalHook": "string",
+      "concreteScene": "string",
       "whyItWorks": "string",
       "safetyRisk": "string"
     }
@@ -246,13 +261,22 @@ Return valid JSON in `dailyFortune`, then call `finalize_twitter_creative`.
     "angle": "string",
     "reason": "string"
   },
-  "hookOptions": ["string"],
+  "hookOptions": [
+    {
+      "type": "contrarian | scene | confession | mystical-image | practical-warning",
+      "text": "string",
+      "whyItWorks": "string"
+    }
+  ],
   "fortuneSpine": {
     "keyword": "string",
     "symbolicImage": "string",
+    "audienceSpecificScene": "string",
     "emotionalWeather": "string",
     "coreTension": "string",
-    "practicalAdvice": "string"
+    "practicalAdvice": "string",
+    "tinyRitual": "string",
+    "closingImage": "string"
   },
   "draftV1": {
     "longTweet": "string",

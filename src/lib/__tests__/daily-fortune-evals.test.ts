@@ -37,6 +37,8 @@ describe("daily-fortune eval cases", () => {
     expect(countChineseChars(body)).toBeGreaterThanOrEqual(600);
     expect(countMatchingScenes(body, ["信用卡账单", "合租", "朋友局 AA", "订阅", "汇率", "跨境转账", "咖啡", "外卖"])).toBeGreaterThanOrEqual(2);
     expect(creative?.dailyFortune?.hookOptions.length).toBeGreaterThanOrEqual(5);
+    expect(creative?.dailyFortune?.hookOptions.every((hook) => hook.text && hook.whyItWorks)).toBe(true);
+    expect(creative?.dailyFortune?.angleOptions.every((angle) => angle.thesis && angle.emotionalHook && angle.concreteScene)).toBe(true);
     expect(creative?.dailyFortune?.engagementPlan.cta).toContain("补");
     expect(allOperatorScores(creative?.dailyFortune).every((score) => score >= 4)).toBe(true);
     expect(body).not.toMatch(/一定暴富|稳赚|必发财|投资建议/);
@@ -103,24 +105,48 @@ function buildMoneyLongTweetArtifact(): DailyFortuneArtifact {
       emotionalNeed: "需要轻松但有掌控感的提醒。"
     },
     angleOptions: [
-      { angle: "财运是少漏一点", whyItWorks: "有反差且安全。", safetyRisk: "避免保证进账。" },
-      { angle: "小钱偷走稳定感", whyItWorks: "贴近海外年轻人。", safetyRisk: "避免羞辱消费。" },
-      { angle: "收口比扩张重要", whyItWorks: "可落到行动。", safetyRisk: "避免投资建议。" }
+      {
+        angle: "财运是少漏一点",
+        thesis: "今天的财运不是保证进账，而是减少漏损。",
+        emotionalHook: "明明没有乱花，钱却悄悄变少。",
+        concreteScene: "信用卡账单、合租分账和朋友局 AA。",
+        whyItWorks: "有反差且安全。",
+        safetyRisk: "避免保证进账。"
+      },
+      {
+        angle: "小钱偷走稳定感",
+        thesis: "重复的小额支出比单次大额支出更影响掌控感。",
+        emotionalHook: "每一笔都不大，但月底一起出现就很刺眼。",
+        concreteScene: "咖啡、外卖、打车和订阅续费。",
+        whyItWorks: "贴近海外年轻人。",
+        safetyRisk: "避免羞辱消费。"
+      },
+      {
+        angle: "收口比扩张重要",
+        thesis: "今天先复核手里的钱流，再追新机会。",
+        emotionalHook: "越想变好，越需要先停一下。",
+        concreteScene: "跨境转账前看手续费，答应聚会前确认预算。",
+        whyItWorks: "可落到行动。",
+        safetyRisk: "避免投资建议。"
+      }
     ],
     selectedAngle: { angle: "财运是少漏一点", reason: "最具体，最适合长推。" },
     hookOptions: [
-      "今天的财运，不一定是多进一笔钱，而是少漏一笔钱。",
-      "如果你觉得钱没有乱花却总是变少，今天先看这里。",
-      "我更愿意把今天的好运理解成收口能力。",
-      "今天的画面像一个漏风的钱袋。",
-      "今天先别在情绪高点下单、转账或答应请客。"
+      { type: "contrarian", text: "今天的财运，不一定是多进一笔钱，而是少漏一笔钱。", whyItWorks: "反转财运预期，避免保证结果。" },
+      { type: "scene", text: "如果你觉得钱没有乱花却总是变少，今天先看这里。", whyItWorks: "命中具体的漏钱感。" },
+      { type: "confession", text: "我更愿意把今天的好运理解成收口能力。", whyItWorks: "建立清醒温柔的人格。" },
+      { type: "mystical-image", text: "今天的画面像一个漏风的钱袋。", whyItWorks: "有意象但不神化。" },
+      { type: "practical-warning", text: "今天先别在情绪高点下单、转账或答应请客。", whyItWorks: "直接落到动作。" }
     ],
     fortuneSpine: {
       keyword: "收口",
       symbolicImage: "漏风的钱袋",
+      audienceSpecificScene: "信用卡账单、合租分账、朋友局 AA 和跨境转账手续费一起挤到月底。",
       emotionalWeather: "想轻松一点，但又担心钱悄悄流走",
       coreTension: "想奖励自己，也想重新拿回财务掌控感",
-      practicalAdvice: "复核一笔支出并停掉一个不需要的订阅"
+      practicalAdvice: "复核一笔支出并停掉一个不需要的订阅",
+      tinyRitual: "睡前整理一张账单截图。",
+      closingImage: "像把漏风的钱袋轻轻系紧。"
     },
     draftV1: {
       longTweet: body.slice(0, 260),
@@ -171,9 +197,12 @@ function buildUnsafeRichArtifact(): DailyFortuneArtifact {
     fortuneSpine: {
       keyword: "复核",
       symbolicImage: "门半开",
+      audienceSpecificScene: "看到限时优惠、跨境转账或订阅扣费时先慢半拍。",
       emotionalWeather: "想被好运确认",
       coreTension: "渴望快速变好，但不能让运势替代判断",
-      practicalAdvice: "推迟非必要付款，复核没看懂的支出"
+      practicalAdvice: "推迟非必要付款，复核没看懂的支出",
+      tinyRitual: "把一笔没看懂的消费备注清楚。",
+      closingImage: "像站在半开的门前多看一眼。"
     },
     operatorCritique: {
       hookStrength: 4,
@@ -221,9 +250,12 @@ function buildCareerThreadArtifact(): DailyFortuneArtifact {
     fortuneSpine: {
       keyword: "对焦",
       symbolicImage: "雾散到一半",
+      audienceSpecificScene: "拖着没回的邮件、会议里没问出口的问题和答应太快的小任务。",
       emotionalWeather: "温柔疲惫，但想把事情做好",
       coreTension: "想证明自己，但今天更需要厘清边界",
-      practicalAdvice: "把一个模糊任务改写成三句话"
+      practicalAdvice: "把一个模糊任务改写成三句话",
+      tinyRitual: "关电脑前整理一个文件名。",
+      closingImage: "像雾散到一半，轮廓开始出现。"
     },
     final: {
       longTweet: {

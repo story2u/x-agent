@@ -88,6 +88,8 @@ skills/
     SKILL.md
     references/
       *.md
+    evals/
+      *.json
 ```
 
 新增 skill 时创建：
@@ -110,10 +112,12 @@ skills/<slug>/SKILL.md
 
 - Single-input TUI client：`scripts/x-agent-tui.ts`
 - Slash command context control
+- Persistent TUI input history：default `.x-agent-tui-history`
 - Local Markdown skill loading：`src/lib/skills/local-skills.ts`
 - Text agent runtime：`src/lib/pi-agent.ts`
 - Default `twitter-launch-creative` skill
 - Default `daily-fortune-tweet` skill with loaded references, operator scoring, rewrite loop guidance, and engagement planning
+- Daily Fortune skill eval specs：`skills/daily-fortune-tweet/evals/*.json`
 - ChatGPT Plus/Pro OAuth credential refresh through pi-ai
 - DeepSeek API provider through OpenAI-compatible Chat Completions
 - Web root page only shows CLI launch instructions
@@ -145,6 +149,8 @@ npm run typecheck
 npm run build
 npm run lint
 npm test
+npm run eval:skills
+npm run eval:skill -- daily-fortune-tweet
 ```
 
 ## Legacy Code
