@@ -3,6 +3,7 @@
 ## 当前状态
 
 MVP 只生成 X/Twitter 文本 artifact，不生成图片，不做 Web 审批流。
+`generateTwitterCreative(input, options?)` 仍返回最终 `GenerateResponse`，同时支持可选 `GenerateProgressOptions.onProgress` 回调，用于实时暴露 pipeline 阶段进度、模型可见 `text_delta`、结构化 tool capture 和错误事件。TUI 使用该回调展示实时进度；不订阅时旧调用方式保持不变。
 
 输出字段：
 
@@ -37,10 +38,12 @@ MVP 只生成 X/Twitter 文本 artifact，不生成图片，不做 Web 审批流
 - **FortuneContext**：western / eastern（生肖年/节气/五行，`src/lib/fortune/eastern-day.ts`）/ seth / creative 四层底料统一为 `FortuneContext`（`src/lib/fortune/context.ts`，`resolveFortuneContext` + `formatFortuneContextForPrompt`），注入各段；TUI `/context` 看四层 + provenance，`/trace` 看逐段 stage trace（selectedReferences / scores / warnings）。
 
 延迟取舍：每条推文约 5 次顺序模型调用（reasoning 模型较慢），换取运营级质量；usage 为各段求和。
+Daily Fortune pipeline 会在 context、reference loading、understand、diverge、judge、draft、refine、finalize 以及可选 expand/public_rewrite 阶段发出进度事件；每个模型 stage 仍独立调用模型，并把可见 `text_delta` 透传给订阅方。
 
 ## 错误处理与模型配置
 
 - 模型硬错误以 `stopReason: "error"/"aborted"` 返回；`pi-agent` 抛出真实原因（凭据未配置、OAuth 刷新失败等），不再用保底模板掩盖。
+- progress callback 异常不会中断生成；runtime 会记录 `generate_progress_callback_failed` 或 `fortune_progress_callback_failed`。
 - 模型返回文本但未调用 `finalize_twitter_creative` 时，从 transcript 恢复；都失败才用保底 artifact。
 - `maxTokens` 默认 8192，可用 `PI_MAX_TOKENS` 覆盖。
 - 可选 `FORTUNE_THINKING_CAP=low|medium|high`：把 fortune pipeline 各段 thinking level 统一封顶，用于加速 `eval:fortune` / 本地迭代；生产默认不设，各段用自身档位。
@@ -70,6 +73,7 @@ TUI 会渲染 Daily Fortune 的 long post、thread、fortune spine、operator cr
 - TUI：`scripts/x-agent-tui.ts`
 - Agent：`src/lib/pi-agent.ts`
 - Model 共享层：`src/lib/pi-model.ts`
+- Progress event types：`src/lib/types.ts` 的 `GenerateProgressEvent` / `GenerateProgressOptions`
 - Fortune 星象引擎：`src/lib/fortune/astro-day.ts`
 - Fortune 5 段 pipeline：`src/lib/fortune/pipeline.ts`
 - Fortune provenance 类型：`src/lib/fortune/types.ts`（FortuneSourceLevel / Confidence / FortuneFactor / FortuneContext / FortunePipelineTrace）
@@ -113,6 +117,7 @@ TUI 会渲染 Daily Fortune 的 long post、thread、fortune spine、operator cr
 - `fortune-thread-career`：thread 5-8 条且 roles 完整。
 - `astro-day`：`getAstroDay` 确定性、太阳星座边界、月相覆盖、focus/情绪随日期轮换、星座解析。
 - `pipeline` helpers：`resolveOutputType` / `clampIndex` / `reindexThread`(封顶 8) / `refBlock` 装配逻辑。
+- `generateTwitterCreative(input, { onProgress })` 能在单次路径和 Daily Fortune pipeline 中发出阶段事件，并保持无 callback 调用兼容。
 - `field-present`：requiredFields 路径解析(a / a.b / a[].b)正负用例。
 - `public-surface`：泄漏短语检测(正负)、技术受众识别、技术黑话扫描。
 - `npm run eval:skills`：校验 skill eval specs 的规则配置完整性。

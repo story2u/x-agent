@@ -18,6 +18,69 @@ export interface GenerateRequest {
   toolIds?: string[];
 }
 
+export interface TokenUsage {
+  input: number;
+  output: number;
+  totalTokens: number;
+}
+
+export type GenerateProgressEvent =
+  | {
+      type: "pipeline_start";
+      runId: string;
+      pipeline: "single-pass" | "daily-fortune";
+      provider: string;
+      model: string;
+      skillSlug?: string;
+      outputType?: GenerateRequest["outputType"];
+    }
+  | {
+      type: "pipeline_end";
+      runId: string;
+      pipeline: "single-pass" | "daily-fortune";
+      usage?: TokenUsage;
+    }
+  | {
+      type: "stage_start";
+      runId: string;
+      stage: string;
+      label: string;
+      index?: number;
+      total?: number;
+      detail?: string;
+    }
+  | {
+      type: "stage_end";
+      runId: string;
+      stage: string;
+      label: string;
+      summary?: string;
+      usage?: TokenUsage;
+    }
+  | {
+      type: "text_delta";
+      runId: string;
+      stage: string;
+      delta: string;
+    }
+  | {
+      type: "tool_call";
+      runId: string;
+      stage: string;
+      toolName: string;
+      label?: string;
+    }
+  | {
+      type: "error";
+      runId: string;
+      stage?: string;
+      message: string;
+    };
+
+export interface GenerateProgressOptions {
+  onProgress?: (event: GenerateProgressEvent) => void;
+}
+
 export interface CreativeMediaExtension {
   kind: "image";
   status: "planned" | "generated";
@@ -137,11 +200,7 @@ export interface GenerateResponse {
   skillTrace?: RunSkillTrace;
   fortuneContext?: FortuneContext;
   fortuneTrace?: FortunePipelineTrace[];
-  usage?: {
-    input: number;
-    output: number;
-    totalTokens: number;
-  };
+  usage?: TokenUsage;
   job?: CreativeJob;
 }
 

@@ -10,7 +10,17 @@ import {
   getSkillVersionSkillMd,
   resolveRuntimeSkill
 } from "@/lib/skills/local-skills";
-import type { DailyFortuneArtifact, DailyFortuneThreadItem, GenerationReference, GenerateRequest, GenerateResponse, RunSkillTrace, TwitterCreative } from "@/lib/types";
+import type {
+  DailyFortuneArtifact,
+  DailyFortuneThreadItem,
+  GenerationReference,
+  GenerateProgressEvent,
+  GenerateProgressOptions,
+  GenerateRequest,
+  GenerateResponse,
+  RunSkillTrace,
+  TwitterCreative
+} from "@/lib/types";
 
 const SYSTEM_PROMPT = `You are a Twitter/X creative agent.
 
@@ -222,21 +232,70 @@ ${contextBlock || "No additional workspace context selected."}
 Return only by calling finalize_twitter_creative.`;
 }
 
-export async function generateTwitterCreative(input: GenerateRequest): Promise<GenerateResponse> {
+function emitProgress(options: GenerateProgressOptions | undefined, event: GenerateProgressEvent) {
+  if (!options?.onProgress) return;
+  try {
+    options.onProgress(event);
+  } catch (error) {
+    logError("generate_progress_callback_failed", error, { runId: event.runId, eventType: event.type });
+  }
+}
+
+function emitProgressError(options: GenerateProgressOptions | undefined, runId: string, stage: string | undefined, error: unknown) {
+  emitProgress(options, {
+    type: "error",
+    runId,
+    stage,
+    message: error instanceof Error ? error.message : String(error)
+  });
+}
+
+export async function generateTwitterCreative(input: GenerateRequest, options?: GenerateProgressOptions): Promise<GenerateResponse> {
   const id = crypto.randomUUID();
   const transcript: string[] = [];
   let creative: TwitterCreative | undefined;
   let usage: GenerateResponse["usage"];
   let stopReason: StopReason | undefined;
   let modelErrorMessage: string | undefined;
-  const skillTrace = await resolveRuntimeSkill(input);
+
+  emitProgress(options, {
+    type: "stage_start",
+    runId: id,
+    stage: "select_skill",
+    label: "select skill",
+    detail: "Resolving local SKILL.md runtime selection."
+  });
+  let skillTrace: RunSkillTrace | undefined;
+  try {
+    skillTrace = await resolveRuntimeSkill(input);
+  } catch (error) {
+    emitProgressError(options, id, "select_skill", error);
+    throw error;
+  }
+  emitProgress(options, {
+    type: "stage_end",
+    runId: id,
+    stage: "select_skill",
+    label: "select skill",
+    summary: skillTrace ? `${skillTrace.skillSlug} (${skillTrace.selectionMode})` : "no local skill selected"
+  });
 
   // Daily fortune runs a real multi-stage reasoning pipeline (understand →
   // diverge → judge → draft → refine), not the single-pass agent below.
   if (skillTrace?.skillSlug === "daily-fortune-tweet") {
+    const model = resolveModel();
+    emitProgress(options, {
+      type: "pipeline_start",
+      runId: id,
+      pipeline: "daily-fortune",
+      provider: model.provider,
+      model: model.id,
+      skillSlug: skillTrace.skillSlug,
+      outputType: input.outputType
+    });
     try {
-      const pipeline = await runFortunePipeline(input, skillTrace);
-      return {
+      const pipeline = await runFortunePipeline(input, skillTrace, { runId: id, onProgress: options?.onProgress });
+      const response = {
         id,
         creative: creativeFromDailyFortune(pipeline.dailyFortune),
         transcript: pipeline.transcript,
@@ -246,29 +305,60 @@ export async function generateTwitterCreative(input: GenerateRequest): Promise<G
         fortuneTrace: pipeline.trace,
         usage: pipeline.usage
       };
+      emitProgress(options, { type: "pipeline_end", runId: id, pipeline: "daily-fortune", usage: pipeline.usage });
+      return response;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      emitProgressError(options, id, "daily_fortune_pipeline", error);
       logError("fortune_pipeline_failed", error, { id });
       // Surface real model/credential errors; degrade only on unexpected faults.
       if (message.startsWith("模型调用失败")) throw error;
-      return {
+      const response = {
         id,
         creative: createDailyFortuneFallbackCreative(input),
         transcript: message,
         references: buildReferences(skillTrace),
         skillTrace
       };
+      emitProgress(options, { type: "pipeline_end", runId: id, pipeline: "daily-fortune" });
+      return response;
     }
   }
 
+  const model = resolveModel();
+  emitProgress(options, {
+    type: "pipeline_start",
+    runId: id,
+    pipeline: "single-pass",
+    provider: model.provider,
+    model: model.id,
+    skillSlug: skillTrace?.skillSlug,
+    outputType: input.outputType
+  });
+  emitProgress(options, {
+    type: "stage_start",
+    runId: id,
+    stage: "load_context",
+    label: "load skill context",
+    index: 1,
+    total: 3,
+    detail: skillTrace ? `Loading ${skillTrace.skillSlug} SKILL.md and references.` : "No local skill context selected."
+  });
   const skillMd = skillTrace ? await getSkillVersionSkillMd(skillTrace.skillVersionId) : undefined;
   const skillReferences = skillTrace ? await getSkillVersionReferences(skillTrace.skillVersionId) : [];
   const references = buildReferences(skillTrace);
+  emitProgress(options, {
+    type: "stage_end",
+    runId: id,
+    stage: "load_context",
+    label: "load skill context",
+    summary: skillTrace ? `${skillTrace.skillSlug}: ${skillReferences.length} references` : "no references"
+  });
 
   const agent = new Agent({
     initialState: {
       systemPrompt: SYSTEM_PROMPT,
-      model: resolveModel(),
+      model,
       thinkingLevel: "medium",
       tools: [finalizeTwitterCreativeTool],
       messages: []
@@ -279,6 +369,13 @@ export async function generateTwitterCreative(input: GenerateRequest): Promise<G
     afterToolCall: async ({ toolCall, result }) => {
       if (toolCall.name === "finalize_twitter_creative") {
         creative = result.details as TwitterCreative;
+        emitProgress(options, {
+          type: "tool_call",
+          runId: id,
+          stage: "generate",
+          toolName: toolCall.name,
+          label: "structured artifact captured"
+        });
       }
       return undefined;
     }
@@ -286,7 +383,9 @@ export async function generateTwitterCreative(input: GenerateRequest): Promise<G
 
   agent.subscribe((event) => {
     if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-      transcript.push(event.assistantMessageEvent.delta);
+      const delta = event.assistantMessageEvent.delta;
+      transcript.push(delta);
+      emitProgress(options, { type: "text_delta", runId: id, stage: "generate", delta });
     }
     if (event.type === "message_end" && event.message.role === "assistant") {
       const messageText = readAssistantMessageText(event.message);
@@ -303,9 +402,19 @@ export async function generateTwitterCreative(input: GenerateRequest): Promise<G
     }
   });
 
+  emitProgress(options, {
+    type: "stage_start",
+    runId: id,
+    stage: "generate",
+    label: "model generation",
+    index: 2,
+    total: 3,
+    detail: `${model.provider}/${model.id}`
+  });
   try {
     await agent.prompt(buildSkillAwarePrompt(input, skillTrace, skillMd, skillReferences));
   } catch (error) {
+    emitProgressError(options, id, "generate", error);
     logError("pi_agent_prompt_failed", error, { id, transcript: transcript.join("").slice(0, 800) });
     throw error;
   }
@@ -317,9 +426,26 @@ export async function generateTwitterCreative(input: GenerateRequest): Promise<G
   if (!creative && (stopReason === "error" || stopReason === "aborted")) {
     const reason = modelErrorMessage?.trim() || `model stopped with reason "${stopReason}"`;
     logError("pi_agent_model_error", new Error(reason), { id, stopReason });
+    emitProgress(options, { type: "error", runId: id, stage: "generate", message: reason });
     throw new Error(`模型调用失败：${reason}`);
   }
+  emitProgress(options, {
+    type: "stage_end",
+    runId: id,
+    stage: "generate",
+    label: "model generation",
+    summary: stopReason ? `stop=${stopReason}` : undefined,
+    usage
+  });
 
+  emitProgress(options, {
+    type: "stage_start",
+    runId: id,
+    stage: "finalize",
+    label: "finalize artifact",
+    index: 3,
+    total: 3
+  });
   if (!creative) {
     creative = recoverCreative(input, transcript.join(""));
   }
@@ -333,7 +459,14 @@ export async function generateTwitterCreative(input: GenerateRequest): Promise<G
     creative = createFallbackCreative(input, transcript.join(""), skillTrace);
   }
 
-  return {
+  emitProgress(options, {
+    type: "stage_end",
+    runId: id,
+    stage: "finalize",
+    label: "finalize artifact",
+    summary: creative.dailyFortune ? "daily fortune artifact" : "twitter creative artifact"
+  });
+  const response = {
     id,
     creative,
     transcript: transcript.join(""),
@@ -341,6 +474,8 @@ export async function generateTwitterCreative(input: GenerateRequest): Promise<G
     skillTrace,
     usage
   };
+  emitProgress(options, { type: "pipeline_end", runId: id, pipeline: "single-pass", usage });
+  return response;
 }
 
 export function recoverCreative(input: GenerateRequest, transcriptText: string): TwitterCreative | undefined {

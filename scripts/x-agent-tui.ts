@@ -6,7 +6,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { generateTwitterCreative } from "../src/lib/pi-agent";
 import { listLocalSkills } from "../src/lib/skills/local-skills";
-import type { GenerateRequest, GenerateResponse, Tone } from "../src/lib/types";
+import type { GenerateProgressEvent, GenerateRequest, GenerateResponse, Tone } from "../src/lib/types";
 import type { FortuneFactor } from "../src/lib/fortune/types";
 
 // Load a local .env (if present) so PI_* / OPENAI_CODEX_* credentials reach the
@@ -143,13 +143,18 @@ async function runAgent(command: string) {
     skillIds: state.skill === "auto" ? undefined : [state.skill]
   };
 
-  console.log(`${ansi.dim}running pi agent...${ansi.reset}`);
+  const progress = createProgressPrinter();
   try {
-    const result = await generateTwitterCreative(request);
+    const result = await generateTwitterCreative(request, { onProgress: progress.onProgress });
+    progress.finish();
     state.history.unshift(result);
     printResult(result);
   } catch (error) {
-    console.log(`${ansi.red}error${ansi.reset} ${error instanceof Error ? error.message : String(error)}`);
+    progress.finish();
+    const message = error instanceof Error ? error.message : String(error);
+    if (!progress.hasPrintedError(message)) {
+      console.log(`${ansi.red}error${ansi.reset} ${message}`);
+    }
     console.log(`${ansi.dim}Use /model to inspect credential hints, or /config to inspect the current request context.${ansi.reset}`);
   }
 }
@@ -401,6 +406,68 @@ function printCredentialHint(provider: ModelProvider) {
   if (provider === "openai-codex" && !process.env.OPENAI_CODEX_ACCESS_TOKEN && !process.env.OPENAI_CODEX_OAUTH_CREDENTIALS) {
     console.log(`${ansi.yellow}missing:${ansi.reset} OPENAI_CODEX_OAUTH_CREDENTIALS or OPENAI_CODEX_ACCESS_TOKEN`);
   }
+}
+
+function createProgressPrinter() {
+  let streamStage = "";
+  let streamOpen = false;
+  let lastErrorMessage = "";
+
+  const closeStream = () => {
+    if (!streamOpen) return;
+    output.write("\n");
+    streamOpen = false;
+    streamStage = "";
+  };
+
+  const printStagePrefix = (event: Extract<GenerateProgressEvent, { type: "stage_start" }>) => {
+    if (event.index && event.total) return `[${event.index}/${event.total}]`;
+    return "-";
+  };
+
+  const onProgress = (event: GenerateProgressEvent) => {
+    switch (event.type) {
+      case "pipeline_start":
+        closeStream();
+        console.log(`${ansi.dim}pipeline ${event.pipeline} ${event.provider}/${event.model}${event.skillSlug ? ` skill=${event.skillSlug}` : ""}${ansi.reset}`);
+        return;
+      case "pipeline_end":
+        closeStream();
+        console.log(`${ansi.dim}pipeline done${event.usage ? `, tokens ${event.usage.totalTokens} total` : ""}${ansi.reset}`);
+        return;
+      case "stage_start":
+        closeStream();
+        console.log(`${ansi.dim}${printStagePrefix(event)} ${event.label}${event.detail ? ` - ${event.detail}` : ""}${ansi.reset}`);
+        return;
+      case "stage_end":
+        closeStream();
+        console.log(`${ansi.green}ok${ansi.reset} ${event.label}${event.summary ? ` - ${event.summary}` : ""}`);
+        return;
+      case "tool_call":
+        closeStream();
+        console.log(`${ansi.dim}tool ${event.toolName}${event.label ? ` - ${event.label}` : ""}${ansi.reset}`);
+        return;
+      case "text_delta":
+        if (!event.delta) return;
+        if (!streamOpen || streamStage !== event.stage) {
+          closeStream();
+          streamOpen = true;
+          streamStage = event.stage;
+          output.write(`${ansi.dim}model ${event.stage} > ${ansi.reset}`);
+        }
+        output.write(event.delta);
+        return;
+      case "error":
+        closeStream();
+        lastErrorMessage = event.message;
+        console.log(`${ansi.red}error${ansi.reset}${event.stage ? ` ${event.stage}` : ""} ${event.message}`);
+        return;
+    }
+  };
+
+  const hasPrintedError = (message: string) => Boolean(lastErrorMessage && (message.includes(lastErrorMessage) || lastErrorMessage.includes(message)));
+
+  return { onProgress, finish: closeStream, hasPrintedError };
 }
 
 function printResult(result: GenerateResponse) {

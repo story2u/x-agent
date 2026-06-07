@@ -8,11 +8,11 @@ MVP 的主操作入口是本地终端 client：
 npm run tui
 ```
 
-TUI 只有一个输入框。普通文本会直接调用 agent 生成 X/Twitter 文本 artifact；其他能力通过 `/` slash commands 调用。
+TUI 只有一个输入框。普通文本会直接调用 agent 生成 X/Twitter 文本 artifact；其他能力通过 `/` slash commands 调用。生成过程中 TUI 会实时打印 pipeline 阶段进度，并在 provider/agent 产生可见 `text_delta` 时按流输出模型文本，避免长时间只显示等待状态。
 
 ## 能力范围
 
-- 生成：普通输入直接调用 `generateTwitterCreative()`。
+- 生成：普通输入直接调用 `generateTwitterCreative()`，并通过 `onProgress` 订阅 `pipeline_start` / `stage_start` / `text_delta` / `tool_call` / `pipeline_end` 等事件。
 - Skill：`/skills` 列出本地 Markdown skills，`/skill auto|<slug>` 切换选择。
 - Context：`/tone`、`/output`、`/audience`、`/goal`、`/constraints`、`/date`、`/timezone` 调整生成上下文。
 - Model：`/model` 展示 provider 和本地凭据状态。
@@ -28,6 +28,7 @@ TUI 不访问任何网络后端、不登录、不落地存储。
 - Local skills：`skills/*/SKILL.md`
 - Skill loader：`src/lib/skills/local-skills.ts`
 - Agent：`src/lib/pi-agent.ts`
+- Types：`src/lib/types.ts` 的 `GenerateProgressEvent` / `GenerateProgressOptions`
 - Credentials：`src/lib/pi-credentials.ts`
 
 ## Slash Commands
@@ -87,6 +88,7 @@ npm run tui
 - Daily Fortune 渲染时，longTweet 主展示 `final.longTweet.body`，thread 主展示 `final.thread`，顶层 `tweet` 只作为摘要。
 - `/model <provider> [model]` 只修改当前 TUI 进程内的 `process.env.PI_PROVIDER` / `process.env.PI_MODEL`，不回写 `.env`。
 - TUI input history 只保存用户输入行和 slash commands，不保存模型输出 artifact；可用 `X_AGENT_TUI_HISTORY_FILE` 改路径，`X_AGENT_TUI_HISTORY_LIMIT` 改最大条数（默认 200）。
+- 进度输出只写当前终端，不进入 `.x-agent-tui-history`，也不改变最终 `GenerateResponse` 的结构化 artifact 渲染。
 
 ## 测试点
 
@@ -96,3 +98,4 @@ npm run tui
 - 今日运势输入能自动选择 `daily-fortune-tweet`。
 - `/model` 能显示 DeepSeek key/base URL 状态。
 - `/model deepseek` 能把当前 TUI session 切到 `deepseek-v4-pro`。
+- 普通生成时不再只显示 `running pi agent...`，而是展示 skill selection、pipeline provider/model、stage progress、tool capture 和最终 token usage；若模型产生可见文本 delta，TUI 会即时输出。

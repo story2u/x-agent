@@ -24,7 +24,15 @@ import { validatePublicPostSurface } from "@/lib/fortune/public-surface";
 import type { FortuneContext, FortunePipelineTrace } from "@/lib/fortune/types";
 import { getSkillVersionReferences } from "@/lib/skills/local-skills";
 import { logError } from "@/lib/logger";
-import type { DailyFortuneArtifact, DailyFortuneThreadItem, GenerateRequest, GenerateResponse, RunSkillTrace } from "@/lib/types";
+import type {
+  DailyFortuneArtifact,
+  DailyFortuneThreadItem,
+  GenerateProgressEvent,
+  GenerateProgressOptions,
+  GenerateRequest,
+  GenerateResponse,
+  RunSkillTrace
+} from "@/lib/types";
 
 export interface FortunePipelineResult {
   dailyFortune: DailyFortuneArtifact;
@@ -200,13 +208,43 @@ interface StageRun<T> {
   text: string;
 }
 
+interface FortunePipelineProgressOptions extends GenerateProgressOptions {
+  runId?: string;
+}
+
+interface StageProgressOptions extends GenerateProgressOptions {
+  runId: string;
+  index?: number;
+  total?: number;
+  label?: string;
+}
+
+function emitProgress(options: GenerateProgressOptions | undefined, event: GenerateProgressEvent) {
+  if (!options?.onProgress) return;
+  try {
+    options.onProgress(event);
+  } catch (error) {
+    logError("fortune_progress_callback_failed", error, { runId: event.runId, eventType: event.type });
+  }
+}
+
+function emitProgressError(options: GenerateProgressOptions | undefined, runId: string, stage: string, error: unknown) {
+  emitProgress(options, {
+    type: "error",
+    runId,
+    stage,
+    message: error instanceof Error ? error.message : String(error)
+  });
+}
+
 async function runStage<T extends TSchema>(
   stageName: string,
   systemPrompt: string,
   userPrompt: string,
   schema: T,
   thinkingLevel: ThinkingLevel,
-  model: RuntimeModel
+  model: RuntimeModel,
+  progress?: StageProgressOptions
 ): Promise<StageRun<Static<T>>> {
   const toolName = `emit_${stageName}`;
   let captured: Static<T> | undefined;
@@ -243,14 +281,25 @@ async function runStage<T extends TSchema>(
     getApiKey: (provider) => getModelApiKey(provider),
     toolExecution: "sequential",
     afterToolCall: async ({ toolCall, result }) => {
-      if (toolCall.name === toolName) captured = result.details as Static<T>;
+      if (toolCall.name === toolName) {
+        captured = result.details as Static<T>;
+        emitProgress(progress, {
+          type: "tool_call",
+          runId: progress?.runId ?? "",
+          stage: stageName,
+          toolName: toolCall.name,
+          label: `${stageName} structured output captured`
+        });
+      }
       return undefined;
     }
   });
 
   agent.subscribe((event) => {
     if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-      text.push(event.assistantMessageEvent.delta);
+      const delta = event.assistantMessageEvent.delta;
+      text.push(delta);
+      if (progress) emitProgress(progress, { type: "text_delta", runId: progress.runId, stage: stageName, delta });
     }
     if (event.type === "message_end" && event.message.role === "assistant") {
       stopReason = event.message.stopReason;
@@ -263,14 +312,44 @@ async function runStage<T extends TSchema>(
     }
   });
 
-  await agent.prompt(`${userPrompt}\n\n只能通过调用 ${toolName} 返回结构化结果。`);
+  if (progress) {
+    emitProgress(progress, {
+      type: "stage_start",
+      runId: progress.runId,
+      stage: stageName,
+      label: progress.label ?? stageName,
+      index: progress.index,
+      total: progress.total,
+      detail: `${model.provider}/${model.id}`
+    });
+  }
+
+  try {
+    await agent.prompt(`${userPrompt}\n\n只能通过调用 ${toolName} 返回结构化结果。`);
+  } catch (error) {
+    if (progress) emitProgressError(progress, progress.runId, stageName, error);
+    throw error;
+  }
 
   if (!captured && (stopReason === "error" || stopReason === "aborted")) {
     const reason = errorMessage?.trim() || `stage ${stageName} stopped with "${stopReason}"`;
+    if (progress) emitProgress(progress, { type: "error", runId: progress.runId, stage: stageName, message: reason });
     throw new Error(`模型调用失败（${stageName}）：${reason}`);
   }
   if (!captured) {
+    if (progress) emitProgress(progress, { type: "error", runId: progress.runId, stage: stageName, message: `stage ${stageName} did not return structured output` });
     throw new Error(`stage ${stageName} did not return structured output`);
+  }
+
+  if (progress) {
+    emitProgress(progress, {
+      type: "stage_end",
+      runId: progress.runId,
+      stage: stageName,
+      label: progress.label ?? stageName,
+      summary: captured && typeof captured === "object" ? Object.keys(captured).join(", ") : "structured output captured",
+      usage
+    });
   }
 
   return { result: captured, usage, text: text.join("") };
@@ -320,17 +399,52 @@ function needsLongTweetExpansion(outputType: FortuneOutputType, body: string): b
   return outputType !== "thread" && countChineseChars(body) < MIN_LONG_TWEET_CHARS;
 }
 
-export async function runFortunePipeline(input: GenerateRequest, skillTrace: RunSkillTrace): Promise<FortunePipelineResult> {
+export async function runFortunePipeline(input: GenerateRequest, skillTrace: RunSkillTrace, progress?: FortunePipelineProgressOptions): Promise<FortunePipelineResult> {
+  const runId = progress?.runId ?? crypto.randomUUID();
   const model = resolveModel();
   const outputType = resolveOutputType(input);
+  const totalStages = 8;
+
+  emitProgress(progress, {
+    type: "stage_start",
+    runId,
+    stage: "context",
+    label: "resolve fortune context",
+    index: 1,
+    total: totalStages,
+    detail: "Resolving date, timezone, sign, and symbolic context."
+  });
   const { context, astro } = resolveFortuneContext(input);
   const contextBlock = formatFortuneContextForPrompt(context);
+  emitProgress(progress, {
+    type: "stage_end",
+    runId,
+    stage: "context",
+    label: "resolve fortune context",
+    summary: `sign=${astro.sign} focus=${astro.creativeFocusDomain} date=${astro.dateISO}`
+  });
 
+  emitProgress(progress, {
+    type: "stage_start",
+    runId,
+    stage: "load_references",
+    label: "load fortune references",
+    index: 2,
+    total: totalStages,
+    detail: skillTrace.skillSlug
+  });
   const allRefs = (await getSkillVersionReferences(skillTrace.skillVersionId)).map((ref) => ({
     title: ref.title,
     path: ref.path,
     content: ref.content
   }));
+  emitProgress(progress, {
+    type: "stage_end",
+    runId,
+    stage: "load_references",
+    label: "load fortune references",
+    summary: `${allRefs.length} references`
+  });
 
   const usageTotals = { input: 0, output: 0, totalTokens: 0 };
   const trace: FortunePipelineTrace[] = [
@@ -384,7 +498,8 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
     `${requestBlock}\n\n当日命理底料（含来源标注，必须采用，勿把创意种子当事实）：\n${contextBlock}\n\n参考资料：\n${refBlock(allRefs, understandRefs)}`,
     briefSchema,
     "medium",
-    model
+    model,
+    { runId, onProgress: progress?.onProgress, index: 3, total: totalStages, label: "understand brief" }
   );
   addUsage(understand, "understand", { refs: understandRefs, inputKeys: ["request", "context"], summary: `domain=${understand.result.focusDomain} scenes=${understand.result.realScenes.length}` });
   const brief = understand.result;
@@ -396,7 +511,8 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
     `创作 brief：\n${JSON.stringify(brief, null, 2)}\n\n当日命理底料（含来源标注）：\n${contextBlock}\n\n参考资料：\n${refBlock(allRefs, divergeRefs)}`,
     divergeSchema,
     "high",
-    model
+    model,
+    { runId, onProgress: progress?.onProgress, index: 4, total: totalStages, label: "diverge angles" }
   );
   addUsage(diverge, "diverge", { refs: divergeRefs, inputKeys: ["brief", "context"], summary: `${diverge.result.angleOptions.length} angles, ${diverge.result.hookOptions.length} hooks` });
 
@@ -409,7 +525,8 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
     `角度选项：\n${angleList}\n\nhook 选项：\n${hookList}\n\n参考资料：\n${refBlock(allRefs, judgeRefs)}`,
     judgeSchema,
     "high",
-    model
+    model,
+    { runId, onProgress: progress?.onProgress, index: 5, total: totalStages, label: "judge options" }
   );
   addUsage(judge, "judge", { refs: judgeRefs, inputKeys: ["angleOptions", "hookOptions"], summary: `selected angle #${judge.result.selectedAngleIndex}`, scores: Object.fromEntries(judge.result.angleScores.map((entry) => [`angle${entry.index}`, entry.total])) });
 
@@ -431,7 +548,8 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
     `创作 brief：\n${JSON.stringify(brief, null, 2)}\n\n选定角度：${selectedAngle.angle}（${selectedAngle.thesis}）\n选定 hook：\n${selectedHooks.map((hook) => `- (${hook.type}) ${hook.text}`).join("\n")}\n\n当日命理底料（含来源标注）：\n${contextBlock}\n\n参考资料：\n${refBlock(allRefs, draftRefs)}`,
     draftSchema,
     "medium",
-    model
+    model,
+    { runId, onProgress: progress?.onProgress, index: 6, total: totalStages, label: "draft content" }
   );
   addUsage(draft, "draft", { refs: draftRefs, inputKeys: ["brief", "selectedAngle", "context"], summary: `keyword=${draft.result.fortuneSpine.keyword}` });
 
@@ -442,7 +560,8 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
     `原始请求（用于安全审查）：${input.topic}\n输出类型：${outputType}\n\n初稿 spine：\n${JSON.stringify(draft.result.fortuneSpine, null, 2)}\n\n初稿长推：\n${draft.result.draftLongTweet || "（无）"}\n\n初稿 thread：\n${JSON.stringify(draft.result.draftThread, null, 2)}\n\n参考资料：\n${refBlock(allRefs, refineRefs)}`,
     refineSchema,
     "high",
-    model
+    model,
+    { runId, onProgress: progress?.onProgress, index: 7, total: totalStages, label: "refine and safety" }
   );
   addUsage(refine, "refine", {
     refs: refineRefs,
@@ -472,7 +591,8 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
       `当前正文（${shortLen} 字，偏短）：\n${finalLongBody}\n\nfortune spine：\n${JSON.stringify(draft.result.fortuneSpine, null, 2)}\n\n受众真实场景：\n${brief.realScenes.join("\n")}\n\n当日命理底料：\n${contextBlock}`,
       expandSchema,
       "medium",
-      model
+      model,
+      { runId, onProgress: progress?.onProgress, label: "expand short long post" }
     );
     addUsage(expand, "expand", { summary: `expand from ${shortLen} chars`, warnings: [`draft body short: ${shortLen} < ${MIN_LONG_TWEET_CHARS}`] });
     // Guard against a regression: only adopt the expanded body if it is actually longer.
@@ -493,7 +613,8 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
       `输出类型：${outputType}\n关键词：${draft.result.fortuneSpine.keyword}；角度：${selectedAngle.angle}\n受众：${input.audience}\n\n当前长推：\n${finalLongBody || "（无）"}\n\n当前 thread：\n${JSON.stringify(finalThread, null, 2)}\n\n参考资料：\n${refBlock(allRefs, ["public-post-boundary.md", "playful-fortune-voice.md"])}`,
       publicRewriteSchema,
       "medium",
-      model
+      model,
+      { runId, onProgress: progress?.onProgress, label: "rewrite public surface" }
     );
     if (outputType !== "thread" && rewrite.result.body.trim()) finalLongBody = rewrite.result.body;
     if (outputType !== "longTweet" && rewrite.result.thread.length) finalThread = reindexThread(rewrite.result.thread);
@@ -509,6 +630,15 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
         safetyCheck: [...refine.result.reviewNotes.safetyCheck, "public-surface leak: internal/safety language remained in the post — review before publishing."]
       }
     : refine.result.reviewNotes;
+
+  emitProgress(progress, {
+    type: "stage_start",
+    runId,
+    stage: "finalize",
+    label: "assemble final artifact",
+    index: 8,
+    total: totalStages
+  });
 
   const dailyFortune: DailyFortuneArtifact = {
     selectedSkill: "daily-fortune-tweet",
@@ -554,6 +684,14 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
     summary: `outputType=${outputType} bodyChars=${countChineseChars(finalLongBody)} thread=${dailyFortune.final.thread.length}`,
     inputKeys: ["refine", "expand?"],
     outputKeys: ["final", "operatorCritique", "engagementPlan", "reviewNotes"]
+  });
+  emitProgress(progress, {
+    type: "stage_end",
+    runId,
+    stage: "finalize",
+    label: "assemble final artifact",
+    summary: `outputType=${outputType} bodyChars=${countChineseChars(finalLongBody)} thread=${dailyFortune.final.thread.length}`,
+    usage: usageTotals
   });
 
   return {
