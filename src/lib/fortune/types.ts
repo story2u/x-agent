@@ -56,7 +56,7 @@ export interface FortuneContext {
 // Structured, per-stage debugging record. Holds summaries and artifact-level
 // intermediates only — never the model's private reasoning text.
 export interface FortunePipelineTrace {
-  stage: "context" | "understand" | "diverge" | "judge" | "draft" | "refine" | "expand" | "finalize";
+  stage: "context" | "understand" | "diverge" | "judge" | "draft" | "refine" | "expand" | "public_rewrite" | "finalize";
   summary: string;
   inputKeys: string[];
   outputKeys: string[];

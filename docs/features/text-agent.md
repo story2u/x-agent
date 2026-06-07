@@ -33,6 +33,7 @@ MVP 只生成 X/Twitter 文本 artifact，不生成图片，不做 Web 审批流
 - `parseSign` 从用户输入解析星座（中文名/别名/英文），无则回退当日太阳星座或「通用」。`parseDateFromText` 从 topic 抽取 `YYYY-MM-DD`。
 - 「今日侧重域」(creativeFocusDomain) 按 `date+sign` 哈希轮换，是**创意种子、非命理事实**；每个变量经 `astroFactors()` 标注 `sourceLevel`+`confidence`（类型 `src/lib/fortune/types.ts`），`formatAstroDayBlock` 在 prompt 里显示来源，避免把创意种子当命理事实。
 - 解读知识在 references：`astrology-signs.md`、`astrology-daily-engine.md`；**Seth 意识内核** `seth-consciousness-framework.md` 注入 diverge/draft/refine，把象征翻译成注意力/信念/概率线/选择点/当下力量点/小行动，refine 检查 agency framing 并去宿命化。对外口径不变（娱乐/非确定性），不逐字引用赛斯。
+- **正文边界（public surface）**：Safety / Seth 是内部逻辑，不得泄漏到正文。`references/public-post-boundary.md` + `playful-fortune-voice.md` 注入 draft/refine；assemble 后 `src/lib/fortune/public-surface.ts` 检查 final，若混入「这不是预言/仅供娱乐/概率线不是固定」等内部术语，触发 `public_rewrite` 段重写为面向海外年轻中文用户的自然运势内容，仍泄漏则 `publishReadiness=draft`。默认非技术受众，禁止 cron/API/terminal 等黑话（除非明确技术受众）。
 - **FortuneContext**：western / eastern（生肖年/节气/五行，`src/lib/fortune/eastern-day.ts`）/ seth / creative 四层底料统一为 `FortuneContext`（`src/lib/fortune/context.ts`，`resolveFortuneContext` + `formatFortuneContextForPrompt`），注入各段；TUI `/context` 看四层 + provenance，`/trace` 看逐段 stage trace（selectedReferences / scores / warnings）。
 
 延迟取舍：每条推文约 5 次顺序模型调用（reasoning 模型较慢），换取运营级质量；usage 为各段求和。
@@ -74,6 +75,7 @@ TUI 会渲染 Daily Fortune 的 long post、thread、fortune spine、operator cr
 - Fortune provenance 类型：`src/lib/fortune/types.ts`（FortuneSourceLevel / Confidence / FortuneFactor / FortuneContext / FortunePipelineTrace）
 - FortuneContext + 序列化：`src/lib/fortune/context.ts`（resolveFortuneContext / formatFortuneContextForPrompt）
 - Seth 意识 reference：`skills/daily-fortune-tweet/references/seth-consciousness-framework.md`
+- 正文边界 guard：`src/lib/fortune/public-surface.ts`；references `public-post-boundary.md`、`playful-fortune-voice.md`
 - Local skills：`skills/*/SKILL.md`
 - Skill Runtime：`src/lib/skills/local-skills.ts`
 - Credentials：`src/lib/pi-credentials.ts`
@@ -111,6 +113,8 @@ TUI 会渲染 Daily Fortune 的 long post、thread、fortune spine、operator cr
 - `fortune-thread-career`：thread 5-8 条且 roles 完整。
 - `astro-day`：`getAstroDay` 确定性、太阳星座边界、月相覆盖、focus/情绪随日期轮换、星座解析。
 - `pipeline` helpers：`resolveOutputType` / `clampIndex` / `reindexThread`(封顶 8) / `refBlock` 装配逻辑。
+- `field-present`：requiredFields 路径解析(a / a.b / a[].b)正负用例。
+- `public-surface`：泄漏短语检测(正负)、技术受众识别、技术黑话扫描。
 - `npm run eval:skills`：校验 skill eval specs 的规则配置完整性。
 - `npm run eval:fortune:mock`：离线 harness 自检（确定性 fixture，无凭据，CI 守门）。
 - `npm run eval:fortune`（本地，需凭据）：真跑 pipeline，规则 + LLM-judge 评真实输出，打印运营达标率。

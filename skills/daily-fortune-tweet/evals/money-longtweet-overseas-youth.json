@@ -46,6 +46,22 @@
       "马上转运",
       "投资建议"
     ],
+    "publicForbiddenPhrases": [
+      "把这条当作",
+      "仅供娱乐",
+      "娱乐与反思",
+      "不是预测",
+      "这不是预言",
+      "不构成投资建议",
+      "不保证",
+      "安全提醒",
+      "风险提示",
+      "Seth",
+      "pipeline",
+      "情绪不是命令",
+      "概率线不是固定"
+    ],
+    "forbidTechnicalJargonUnlessTechnicalAudience": true,
     "minOperatorScore": 4,
     "publishReadiness": [
       "reviewed",

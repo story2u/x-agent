@@ -16,6 +16,7 @@ import { generateTwitterCreative } from "../src/lib/pi-agent";
 import { resolveModel } from "../src/lib/pi-model";
 import { runStage } from "../src/lib/fortune/pipeline";
 import { fieldPresent } from "../src/lib/fortune/field-present";
+import { findTechnicalJargon, isTechnicalAudience, validatePublicPostSurface } from "../src/lib/fortune/public-surface";
 import type { DailyFortuneArtifact, GenerateRequest, Tone } from "../src/lib/types";
 
 if (existsSync(".env")) {
@@ -42,6 +43,8 @@ interface FortuneEvalSpec {
     requiredHookTypes?: string[];
     requiredThreadRoles?: string[];
     forbiddenPhrases: string[];
+    publicForbiddenPhrases?: string[];
+    forbidTechnicalJargonUnlessTechnicalAudience?: boolean;
     minOperatorScore?: number;
     publishReadiness?: string[];
     expectSign?: string;
@@ -158,6 +161,16 @@ function checkRules(spec: FortuneEvalSpec, fortune: DailyFortuneArtifact): RuleR
     rules.push({ name: "requiredFields", ok: missing.length === 0, detail: missing.length ? `missing: ${missing.join(", ")}` : `all ${spec.expect.requiredFields.length}` });
   }
 
+  // Public surface: internal safety / Seth / review language must not reach the post.
+  const publicIssues = validatePublicPostSurface(content, spec.expect.publicForbiddenPhrases);
+  rules.push({ name: "publicSurface", ok: publicIssues.length === 0, detail: publicIssues.length ? `FOUND: ${publicIssues.map((issue) => issue.phrase).join(", ")}` : "clean" });
+
+  // Technical jargon: banned unless the audience is explicitly technical.
+  if (spec.expect.forbidTechnicalJargonUnlessTechnicalAudience !== false && !isTechnicalAudience(spec.request.audience)) {
+    const jargon = findTechnicalJargon(content);
+    rules.push({ name: "noTechnicalJargon", ok: jargon.length === 0, detail: jargon.length ? `FOUND: ${jargon.join(", ")}` : "none" });
+  }
+
   return rules;
 }
 
@@ -201,26 +214,28 @@ function mockFortune(spec: FortuneEvalSpec): DailyFortuneArtifact {
   const sign = spec.expect.expectSign ?? "今日";
   const scenes = ["信用卡账单和订阅扣费", "朋友局 AA 和跨境转账手续费", "跨时区会议和拖着没回的消息"];
   const sentences = [
-    `今日${sign}运势更像是一个提醒，而不是预言。`,
-    "今天的重点不是控制未来，而是把注意力收回到当下。",
-    "你正站在一个选择点上：一个小动作，就能把概率线轻轻拨向更稳的方向。",
-    `具体一点：${scenes[0]}、${scenes[1]}，都是今天最容易被忽略的小事。`,
-    `还有${scenes[2]}，先看见它，再决定怎么回应。`,
-    "这不是要你焦虑，而是把主动权重新放回你手里。",
-    "今天的小仪式：选一件最容易被忽略的小事，在今天结束前把它收口。",
-    "它不会立刻改变什么，但会让你更稳地接住接下来的事。"
+    `今日${sign}运势：钱包防漏日。`,
+    "先别急着问会不会突然进账，今天的主线是别被小钱偷家。",
+    `${scenes[0]}、${scenes[1]}，海外生活的隐形漏水口，今天值得逐个看一眼。`,
+    "外卖、咖啡、打车这海外三件套，单次都不痛，月底一起结账才懂什么叫汇率一换、快乐减半。",
+    "今天最值钱的小动作：把购物车放进 24 小时冷静期，明天还想要再下单。",
+    "顺手停掉一个“你不看我我就继续扣”的订阅，钱包会对你说一句：我真的会谢。",
+    "不是要你抠，是把选择权握回自己手里——今天少漏一点，月底的你就轻一点。",
+    `${scenes[2]}也别硬扛，回一句“收到，我看看”，比已读不回省心。`,
+    "今日小仪式：睡前把一笔看不懂的支出备注清楚，明早醒来心里有底。",
+    "今天先别给人生扩容，先把一个漏钱的小口子缝上。"
   ];
   let body = sentences.join("");
   while (countChineseChars(body) < 620) body += sentences[2] + sentences[6];
 
   const thread: DailyFortuneArtifact["final"]["thread"] = [
-    { index: 1, text: `今日${sign}运势：关键词是「收回注意力」。今天不是预言，是一个选择点。`, role: "hook" },
-    { index: 2, text: `如果你最近在${scenes[2]}里反复消耗，累不是因为你不努力。`, role: "emotional context" },
-    { index: 3, text: `具体看：${scenes[0]}、${scenes[1]}，都值得今天看一眼。`, role: "concrete scene" },
-    { index: 4, text: "把象征落到当下：你正站在一个选择点上，不是命运的旁观者。", role: "fortune interpretation" },
-    { index: 5, text: "今日小动作：挑一件最容易忽略的小事，今天结束前收口。", role: "practical action" },
-    { index: 6, text: "小仪式：睡前把一件没说清的事，用三行写下来。", role: "ritual" },
-    { index: 7, text: "你今天最想先收回注意力的是哪件事？留一个词。", role: "CTA" }
+    { index: 1, text: `今日${sign}运势：钱包防漏日。今天不求突然进账，先求别被小钱偷家。`, role: "hook" },
+    { index: 2, text: `如果你最近总觉得没乱花却还是月底吃土，问题往往不在大钱，在${scenes[2]}里的反复内耗。`, role: "emotional context" },
+    { index: 3, text: `点名三件套：${scenes[0]}、${scenes[1]}、外卖咖啡打车，海外钱包的隐形漏水口。`, role: "concrete scene" },
+    { index: 4, text: "今天的画风不是大开大合，是把散出去的小钱一笔笔接回来。", role: "fortune interpretation" },
+    { index: 5, text: "今日小动作：购物车冷静 24 小时，再停一个忘了的自动续费。", role: "practical action" },
+    { index: 6, text: "小仪式：睡前给一笔看不懂的支出写个备注，钱包会对你说：我真的会谢。", role: "ritual" },
+    { index: 7, text: "你今天最想先缝哪个漏钱口子：订阅、AA、还是冲动下单？评论区蹲一下。", role: "CTA" }
   ];
 
   return {
