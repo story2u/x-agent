@@ -124,7 +124,7 @@ async function judge(spec: FortuneEvalSpec, fortune: DailyFortuneArtifact) {
     "你是 X/Twitter 资深运营主编，独立、挑剔。对下面这条已成稿的运势内容按 operator rubric 七维打分（各 1-5），并给出 verdict：是否达到可发布的运营级质量（要求各维≥4 且安全、非确定性）。只评分，不改写。",
     `受众：${spec.request.audience}\n输出类型：${spec.expect.outputType}\n\n成稿内容：\n${content}\n\n关键词：${fortune.fortuneSpine.keyword}；角度：${fortune.selectedAngle.angle}`,
     judgeSchema,
-    "high",
+    "low",
     resolveModel()
   );
   return result;

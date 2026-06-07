@@ -17,7 +17,7 @@ Skills 不再存储到 D1，也不再通过 Web Skill Studio 编辑。TUI 通过
 默认本地 skills：
 
 - `twitter-launch-creative`：通用 X/Twitter 文本生成。
-- `daily-fortune-tweet`：运营级今日运势内容生产技能，包含 references、评分和 rewrite loop 指令。
+- `daily-fortune-tweet`：运营级今日运势技能，以星座为命理底料，运行时走 5 段推理 pipeline（understand → diverge → judge → draft → refine）+ 确定性当日星象引擎。
 
 ## 相关模块
 
@@ -29,8 +29,9 @@ Skills 不再存储到 D1，也不再通过 Web Skill Studio 编辑。TUI 通过
 - Validator：`src/lib/skills/validate-skill.ts`
 - TUI：`scripts/x-agent-tui.ts`
 - Agent：`src/lib/pi-agent.ts`
-- Eval runner：`scripts/eval-skills.ts`
-- Tests：`src/lib/__tests__/skills.test.ts`、`src/lib/__tests__/daily-fortune-evals.test.ts`
+- Fortune pipeline / 星象引擎：`src/lib/fortune/pipeline.ts`、`src/lib/fortune/astro-day.ts`、共享 `src/lib/pi-model.ts`
+- Eval runner：`scripts/eval-skills.ts`（形状校验）、`scripts/eval-fortune-run.ts`（真跑 + LLM-judge）
+- Tests：`src/lib/__tests__/skills.test.ts`、`src/lib/__tests__/daily-fortune-evals.test.ts`、`src/lib/fortune/__tests__/astro-day.test.ts`、`src/lib/fortune/__tests__/pipeline.test.ts`
 
 ## SKILL.md 要求
 
@@ -48,11 +49,14 @@ Skills 不再存储到 D1，也不再通过 Web Skill Studio 编辑。TUI 通过
 
 Skill eval specs live in `skills/<slug>/evals/*.json` and define machine-checkable quality rules such as required fields, minimum hook/angle counts, forbidden phrases, minimum operator scores, long-tweet length, and thread roles.
 
+质量门分两层：`eval:skills` 只校验 eval spec 的形状（无需凭据）；`eval:fortune` 会真跑 daily-fortune pipeline，并用确定性规则 + 独立 LLM-judge 对真实输出评分、打印运营达标率（需模型凭据）。
+
 Commands:
 
 ```bash
-npm run eval:skills
+npm run eval:skills                       # 形状校验（无需凭据）
 npm run eval:skill -- daily-fortune-tweet
+npm run eval:fortune                      # 真跑 pipeline + LLM-judge（需凭据，本地手动门）
 ```
 
 ## Runtime 集成
@@ -66,10 +70,12 @@ npm run eval:skill -- daily-fortune-tweet
 5. 编译 skill-aware prompt。
 6. 返回 `skillTrace` 给 TUI 展示，`loadedReferences` 包含 SKILL.md 和 references。
 
+> 例外：选中 `daily-fortune-tweet` 时改走 `src/lib/fortune/pipeline.ts` 的 5 段推理（注入确定性当日星象事实，详见 `docs/数据流程.md`），不走单次 `finalize_twitter_creative`。
+
 ## 开发注意
 
 - 新 skill 必须先创建 `skills/<slug>/SKILL.md`。
 - 不要把 skill source of truth 写回 D1。
 - 修改 validation 规则时要更新 `src/lib/__tests__/skills.test.ts`。
 - References 仅支持本地 Markdown 文件和 prompt 注入；Knowledge Base、Tools / Extensions 暂不作为 MVP TUI 功能。
-- Evals 当前校验规则文件结构和质量门配置；真实模型输出回放可在后续 runner 中扩展。
+- Evals 分两层：`eval:skills` 校验 eval spec 形状（无需凭据）；`eval:fortune`（`scripts/eval-fortune-run.ts`）真跑 pipeline + 规则 + LLM-judge 评真实输出、打印运营达标率（需凭据）。

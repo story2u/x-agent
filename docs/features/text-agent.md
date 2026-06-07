@@ -41,6 +41,7 @@ MVP 只生成 X/Twitter 文本 artifact，不生成图片，不做 Web 审批流
 - 模型硬错误以 `stopReason: "error"/"aborted"` 返回；`pi-agent` 抛出真实原因（凭据未配置、OAuth 刷新失败等），不再用保底模板掩盖。
 - 模型返回文本但未调用 `finalize_twitter_creative` 时，从 transcript 恢复；都失败才用保底 artifact。
 - `maxTokens` 默认 8192，可用 `PI_MAX_TOKENS` 覆盖。
+- 可选 `FORTUNE_THINKING_CAP=low|medium|high`：把 fortune pipeline 各段 thinking level 统一封顶，用于加速 `eval:fortune` / 本地迭代；生产默认不设，各段用自身档位。
 - `finalize_twitter_creative` 的 `dailyFortune` 字段使用严格 TypeBox schema（非 `Type.Any`），强约束模型输出结构；`daily-fortune-tweet/SKILL.md`、`references/*.md` 和 `evals/*.json` 内置运营策略、评分规则、黄金样例和机器质量门。
 - 模型 provider 支持 `openai-codex`、`openai` 和 `deepseek`；DeepSeek 走 `openai-completions`。
 

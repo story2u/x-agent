@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampIndex, refBlock, reindexThread, resolveOutputType } from "@/lib/fortune/pipeline";
+import { clampIndex, countChineseChars, MIN_LONG_TWEET_CHARS, needsLongTweetExpansion, refBlock, reindexThread, resolveOutputType } from "@/lib/fortune/pipeline";
 import type { DailyFortuneThreadItem, GenerateRequest } from "@/lib/types";
 
 function req(outputType?: GenerateRequest["outputType"]): GenerateRequest {
@@ -69,5 +69,30 @@ describe("refBlock", () => {
 
   it("returns empty string when nothing matches", () => {
     expect(refBlock(refs, ["nope.md"])).toBe("");
+  });
+});
+
+describe("countChineseChars", () => {
+  it("counts only CJK characters", () => {
+    expect(countChineseChars("abc 123 你好，世界")).toBe(4);
+    expect(countChineseChars("")).toBe(0);
+  });
+});
+
+describe("needsLongTweetExpansion", () => {
+  const short = "字".repeat(MIN_LONG_TWEET_CHARS - 1);
+  const atFloor = "字".repeat(MIN_LONG_TWEET_CHARS);
+
+  it("flags short longTweet/both bodies", () => {
+    expect(needsLongTweetExpansion("longTweet", short)).toBe(true);
+    expect(needsLongTweetExpansion("both", short)).toBe(true);
+  });
+
+  it("passes bodies at or above the floor", () => {
+    expect(needsLongTweetExpansion("longTweet", atFloor)).toBe(false);
+  });
+
+  it("never expands thread output (no long body expected)", () => {
+    expect(needsLongTweetExpansion("thread", short)).toBe(false);
   });
 });

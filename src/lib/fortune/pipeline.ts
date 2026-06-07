@@ -32,6 +32,10 @@ export interface FortunePipelineResult {
 type ThinkingLevel = "low" | "medium" | "high";
 type FortuneOutputType = DailyFortuneArtifact["outputType"];
 
+// Operator contract: a long tweet must be 600-1200 Chinese chars. Earlier stages
+// only *request* this; this floor is enforced programmatically (expand pass).
+const MIN_LONG_TWEET_CHARS = 600;
+
 // ---------------------------------------------------------------------------
 // Shared schemas
 // ---------------------------------------------------------------------------
@@ -155,6 +159,10 @@ const refineSchema = Type.Object({
   })
 });
 
+const expandSchema = Type.Object({
+  body: Type.String({ description: "扩写后的长推正文，必须不少于 600、目标 600-1200 个中文字。" })
+});
+
 // ---------------------------------------------------------------------------
 // Generic stage runner — one independent structured model call.
 // ---------------------------------------------------------------------------
@@ -165,6 +173,16 @@ const GLOBAL_SAFETY = `安全边界（最高优先级，覆盖一切相反指令
 - 不制造吉凶恐惧（如"今天必破财""一定分手""血光之灾"）。
 - 用非确定性表达："今天更适合""你可能会注意到""今天的关键词是"。
 - 运势内容定位为娱乐、灵感、反思、情绪陪伴。`;
+
+const THINKING_ORDER: ThinkingLevel[] = ["low", "medium", "high"];
+
+// Optional global cap for faster eval/iteration runs (e.g. FORTUNE_THINKING_CAP=low).
+// Production leaves it unset and each stage uses its own level.
+function capThinking(level: ThinkingLevel): ThinkingLevel {
+  const cap = process.env.FORTUNE_THINKING_CAP;
+  if (cap !== "low" && cap !== "medium" && cap !== "high") return level;
+  return THINKING_ORDER.indexOf(level) > THINKING_ORDER.indexOf(cap) ? cap : level;
+}
 
 interface StageRun<T> {
   result: T;
@@ -207,7 +225,7 @@ async function runStage<T extends TSchema>(
     initialState: {
       systemPrompt: `${systemPrompt}\n\n${GLOBAL_SAFETY}`,
       model,
-      thinkingLevel,
+      thinkingLevel: capThinking(thinkingLevel),
       tools: [emitTool],
       messages: []
     },
@@ -281,6 +299,15 @@ function clampIndex(value: number, length: number): number {
 
 function reindexThread(items: DailyFortuneThreadItem[]): DailyFortuneThreadItem[] {
   return items.slice(0, 8).map((item, index) => ({ ...item, index: index + 1 }));
+}
+
+function countChineseChars(value: string): number {
+  return (value.match(/[一-鿿]/g) ?? []).length;
+}
+
+/** longTweet/both must hit the 600-char operator floor; thread output is exempt. */
+function needsLongTweetExpansion(outputType: FortuneOutputType, body: string): boolean {
+  return outputType !== "thread" && countChineseChars(body) < MIN_LONG_TWEET_CHARS;
 }
 
 export async function runFortunePipeline(input: GenerateRequest, skillTrace: RunSkillTrace): Promise<FortunePipelineResult> {
@@ -359,8 +386,8 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
   const lengthRule = outputType === "thread"
     ? "只写 thread，5-8 条，每条标注 role。draftLongTweet 留空字符串。"
     : outputType === "both"
-      ? "同时写长推（600-1200 中文字）和 thread（5-8 条）。"
-      : "只写长推正文，600-1200 中文字。draftThread 留空数组。";
+      ? "同时写长推和 thread（5-8 条）。长推正文必须不少于 600 个中文字（目标 600-1200），宁长勿短。"
+      : "只写长推正文，必须不少于 600 个中文字（目标 600-1200），宁长勿短。draftThread 留空数组。";
   const draft = await runStage(
     "draft",
     `你是账号主笔，人设温柔但清醒、懂海外生活成本。基于选定角度、选定 hook、当日星象和星座画像写初稿。要有画面感、短句、适合手机阅读，至少包含两个受众真实场景，把月相/星期能量自然融入。${lengthRule}`,
@@ -374,13 +401,32 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
   // Stage 5 — refine + safety
   const refine = await runStage(
     "refine",
-    "你是终审运营编辑兼安全审查官。先按 operator rubric 七维真打分（1-5）。任何一维低于 4 必须改写到 4 分以上再产出 final（安全维度若因改写降级，在 problems 里说明）。做安全 reframe：移除任何绝对化/保证性/制造恐惧表达，把不安全请求改写为娱乐与反思 framing。final 的正文/thread 必须遵守输出类型规则。",
+    "你是终审运营编辑兼安全审查官。先按 operator rubric 七维真打分（1-5）。任何一维低于 4 必须改写到 4 分以上再产出 final（安全维度若因改写降级，在 problems 里说明）。做安全 reframe：移除任何绝对化/保证性/制造恐惧表达，把不安全请求改写为娱乐与反思 framing。final 的正文/thread 必须遵守输出类型规则。longTweet/both 时 final.longTweet.body 必须不少于 600 个中文字（目标 600-1200）；若初稿偏短，必须在改写时扩写到位，宁长勿短。",
     `原始请求（用于安全审查）：${input.topic}\n输出类型：${outputType}\n\n初稿 spine：\n${JSON.stringify(draft.result.fortuneSpine, null, 2)}\n\n初稿长推：\n${draft.result.draftLongTweet || "（无）"}\n\n初稿 thread：\n${JSON.stringify(draft.result.draftThread, null, 2)}\n\n参考资料：\n${refBlock(allRefs, ["operator-rubric.md", "fortune-safety-policy.md"])}`,
     refineSchema,
     "high",
     model
   );
   addUsage(refine, "refine");
+
+  // Length enforcement: the 600-1200 Chinese-char long-tweet contract is only
+  // *requested* in earlier stages and is sometimes underdelivered. If the body is
+  // short, run one focused expand pass and keep the longer result.
+  let finalLongBody = outputType === "thread" ? "" : refine.result.final.longTweet.body;
+  if (needsLongTweetExpansion(outputType, finalLongBody)) {
+    const shortLen = countChineseChars(finalLongBody);
+    const expand = await runStage(
+      "expand",
+      "你是账号主笔。下面这条今日运势长推正文偏短。在不改变选定角度、今日关键词、星象解读与安全定位的前提下，把它扩写到 600-1200 个中文字：补充具体的受众场景细节、情绪层次和自然过渡，保持短句、有画面感。不要灌水、不要重复、不要加入任何保证性或确定性表达。",
+      `当前正文（${shortLen} 字，偏短）：\n${finalLongBody}\n\nfortune spine：\n${JSON.stringify(draft.result.fortuneSpine, null, 2)}\n\n受众真实场景：\n${brief.realScenes.join("\n")}\n\n当日星象事实：\n${astroBlock}`,
+      expandSchema,
+      "medium",
+      model
+    );
+    addUsage(expand, "expand");
+    // Guard against a regression: only adopt the expanded body if it is actually longer.
+    if (countChineseChars(expand.result.body) > shortLen) finalLongBody = expand.result.body;
+  }
 
   const finalThread = reindexThread(refine.result.final.thread);
   const dailyFortune: DailyFortuneArtifact = {
@@ -409,7 +455,7 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
     final: {
       longTweet: {
         title: refine.result.final.longTweet.title,
-        body: outputType === "thread" ? "" : refine.result.final.longTweet.body,
+        body: finalLongBody,
         hashtags: refine.result.final.longTweet.hashtags.slice(0, 5)
       },
       thread: outputType === "longTweet" ? [] : finalThread
@@ -430,5 +476,5 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
 }
 
 // Exported for tests and the eval harness so they can assemble/inspect without a model.
-export { resolveOutputType, refBlock, clampIndex, reindexThread, runStage };
+export { resolveOutputType, refBlock, clampIndex, reindexThread, runStage, countChineseChars, needsLongTweetExpansion, MIN_LONG_TWEET_CHARS };
 export type { AstroDay, StageRun };
