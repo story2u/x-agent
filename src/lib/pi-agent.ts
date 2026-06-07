@@ -242,6 +242,8 @@ export async function generateTwitterCreative(input: GenerateRequest): Promise<G
         transcript: pipeline.transcript,
         references: buildReferences(skillTrace),
         skillTrace,
+        fortuneContext: pipeline.context,
+        fortuneTrace: pipeline.trace,
         usage: pipeline.usage
       };
     } catch (error) {

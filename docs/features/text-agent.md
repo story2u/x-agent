@@ -33,6 +33,7 @@ MVP 只生成 X/Twitter 文本 artifact，不生成图片，不做 Web 审批流
 - `parseSign` 从用户输入解析星座（中文名/别名/英文），无则回退当日太阳星座或「通用」。`parseDateFromText` 从 topic 抽取 `YYYY-MM-DD`。
 - 「今日侧重域」(creativeFocusDomain) 按 `date+sign` 哈希轮换，是**创意种子、非命理事实**；每个变量经 `astroFactors()` 标注 `sourceLevel`+`confidence`（类型 `src/lib/fortune/types.ts`），`formatAstroDayBlock` 在 prompt 里显示来源，避免把创意种子当命理事实。
 - 解读知识在 references：`astrology-signs.md`、`astrology-daily-engine.md`；**Seth 意识内核** `seth-consciousness-framework.md` 注入 diverge/draft/refine，把象征翻译成注意力/信念/概率线/选择点/当下力量点/小行动，refine 检查 agency framing 并去宿命化。对外口径不变（娱乐/非确定性），不逐字引用赛斯。
+- **FortuneContext**：western / eastern（Slice 3 占位）/ seth / creative 四层底料统一为 `FortuneContext`（`src/lib/fortune/context.ts`，`resolveFortuneContext` + `formatFortuneContextForPrompt`），注入各段；TUI `/context` 看四层 + provenance，`/trace` 看逐段 stage trace（selectedReferences / scores / warnings）。
 
 延迟取舍：每条推文约 5 次顺序模型调用（reasoning 模型较慢），换取运营级质量；usage 为各段求和。
 
@@ -70,7 +71,8 @@ TUI 会渲染 Daily Fortune 的 long post、thread、fortune spine、operator cr
 - Model 共享层：`src/lib/pi-model.ts`
 - Fortune 星象引擎：`src/lib/fortune/astro-day.ts`
 - Fortune 5 段 pipeline：`src/lib/fortune/pipeline.ts`
-- Fortune provenance 类型：`src/lib/fortune/types.ts`（FortuneSourceLevel / Confidence / FortuneFactor）
+- Fortune provenance 类型：`src/lib/fortune/types.ts`（FortuneSourceLevel / Confidence / FortuneFactor / FortuneContext / FortunePipelineTrace）
+- FortuneContext + 序列化：`src/lib/fortune/context.ts`（resolveFortuneContext / formatFortuneContextForPrompt）
 - Seth 意识 reference：`skills/daily-fortune-tweet/references/seth-consciousness-framework.md`
 - Local skills：`skills/*/SKILL.md`
 - Skill Runtime：`src/lib/skills/local-skills.ts`

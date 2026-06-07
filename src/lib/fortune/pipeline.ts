@@ -18,7 +18,9 @@ import { Agent, type AgentTool } from "@earendil-works/pi-agent-core";
 import { Type, type Static, type TSchema } from "typebox";
 import type { StopReason } from "@earendil-works/pi-ai";
 import { getModelApiKey, resolveModel, streamForModel, type RuntimeModel } from "@/lib/pi-model";
-import { formatAstroDayBlock, getAstroDay, parseDateFromText, parseSign, resolveCalendarDate, type AstroDay } from "@/lib/fortune/astro-day";
+import type { AstroDay } from "@/lib/fortune/astro-day";
+import { formatFortuneContextForPrompt, resolveFortuneContext } from "@/lib/fortune/context";
+import type { FortuneContext, FortunePipelineTrace } from "@/lib/fortune/types";
 import { getSkillVersionReferences } from "@/lib/skills/local-skills";
 import { logError } from "@/lib/logger";
 import type { DailyFortuneArtifact, DailyFortuneThreadItem, GenerateRequest, GenerateResponse, RunSkillTrace } from "@/lib/types";
@@ -27,6 +29,8 @@ export interface FortunePipelineResult {
   dailyFortune: DailyFortuneArtifact;
   transcript: string;
   usage: GenerateResponse["usage"];
+  context: FortuneContext;
+  trace: FortunePipelineTrace[];
 }
 
 type ThinkingLevel = "low" | "medium" | "high";
@@ -313,10 +317,8 @@ function needsLongTweetExpansion(outputType: FortuneOutputType, body: string): b
 export async function runFortunePipeline(input: GenerateRequest, skillTrace: RunSkillTrace): Promise<FortunePipelineResult> {
   const model = resolveModel();
   const outputType = resolveOutputType(input);
-  const sign = parseSign(input.topic) ?? parseSign(input.audience);
-  const { dateISO, timeZone } = resolveCalendarDate({ date: input.date ?? parseDateFromText(input.topic), timeZone: input.timeZone });
-  const astro = getAstroDay(dateISO, sign, timeZone);
-  const astroBlock = formatAstroDayBlock(astro);
+  const { context, astro } = resolveFortuneContext(input);
+  const contextBlock = formatFortuneContextForPrompt(context);
 
   const allRefs = (await getSkillVersionReferences(skillTrace.skillVersionId)).map((ref) => ({
     title: ref.title,
@@ -325,12 +327,33 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
   }));
 
   const usageTotals = { input: 0, output: 0, totalTokens: 0 };
-  const transcriptParts: string[] = [`# Daily Fortune Pipeline\n${astroBlock}`];
-  const addUsage = (run: StageRun<unknown>, label: string) => {
+  const trace: FortunePipelineTrace[] = [
+    {
+      stage: "context",
+      summary: `sign=${astro.sign} focus=${astro.creativeFocusDomain} moon=${astro.moonPhase} ${astro.dateISO} ${astro.timeZone}`,
+      inputKeys: ["topic", "audience", "date", "timeZone"],
+      outputKeys: ["western", "eastern", "seth", "creative"]
+    }
+  ];
+  const transcriptParts: string[] = [`# Daily Fortune Pipeline\n${contextBlock}`];
+  const addUsage = (
+    run: StageRun<unknown>,
+    stage: FortunePipelineTrace["stage"],
+    meta: { summary?: string; inputKeys?: string[]; refs?: string[]; scores?: Record<string, number>; warnings?: string[] } = {}
+  ) => {
     usageTotals.input += run.usage.input;
     usageTotals.output += run.usage.output;
     usageTotals.totalTokens += run.usage.totalTokens;
-    transcriptParts.push(`## ${label}\n${JSON.stringify(run.result, null, 2)}`);
+    transcriptParts.push(`## ${stage}\n${JSON.stringify(run.result, null, 2)}`);
+    trace.push({
+      stage,
+      summary: meta.summary ?? `${stage} done`,
+      inputKeys: meta.inputKeys ?? [],
+      outputKeys: run.result && typeof run.result === "object" ? Object.keys(run.result) : [],
+      selectedReferences: meta.refs,
+      scores: meta.scores,
+      warnings: meta.warnings
+    });
   };
 
   const requestBlock = [
@@ -341,28 +364,35 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
     `额外约束: ${input.constraints || "无"}`
   ].join("\n");
 
+  // Per-stage reference sets — shared by the prompt (refBlock) and the stage trace.
+  const understandRefs = ["audience-overseas-chinese-youth.md", "astrology-signs.md", "astrology-daily-engine.md"];
+  const divergeRefs = ["astrology-signs.md", "astrology-daily-engine.md", "seth-consciousness-framework.md", "fortune-symbol-bank.md", "hook-patterns.md"];
+  const judgeRefs = ["operator-rubric.md", "golden-examples.md"];
+  const draftRefs = ["astrology-signs.md", "astrology-daily-engine.md", "seth-consciousness-framework.md", "x-long-tweet-patterns.md", "x-thread-patterns.md", "golden-examples.md"];
+  const refineRefs = ["operator-rubric.md", "fortune-safety-policy.md", "seth-consciousness-framework.md"];
+
   // Stage 1 — understand
   const understand = await runStage(
     "understand",
     "你是运营策略分析师。基于用户请求、目标星座的当日星象事实和受众资料，输出一份结构化创作 brief。focusDomain 必须与注入的星象事实里的「今日侧重域」一致。realScenes 至少两个，必须是受众真实生活场景。不要写正文。",
-    `${requestBlock}\n\n当日星象事实（确定性，必须采用）：\n${astroBlock}\n\n参考资料：\n${refBlock(allRefs, ["audience-overseas-chinese-youth.md", "astrology-signs.md", "astrology-daily-engine.md"])}`,
+    `${requestBlock}\n\n当日命理底料（含来源标注，必须采用，勿把创意种子当事实）：\n${contextBlock}\n\n参考资料：\n${refBlock(allRefs, understandRefs)}`,
     briefSchema,
     "medium",
     model
   );
-  addUsage(understand, "understand");
+  addUsage(understand, "understand", { refs: understandRefs, inputKeys: ["request", "context"], summary: `domain=${understand.result.focusDomain} scenes=${understand.result.realScenes.length}` });
   const brief = understand.result;
 
   // Stage 2 — diverge
   const diverge = await runStage(
     "diverge",
     "你是发散创意脑暴。基于 brief 和当日星象，产出 3-5 个角度选项和 5 个 hook（五种类型 contrarian/scene/confession/mystical-image/practical-warning 各一个）。要具体、有反差、贴合星座画像与受众场景、安全。围绕 brief.focusDomain 这个主轴展开。每个角度都应能被 Seth 意识框架解释（注意力/信念/选择点/小行动），避免宿命与恐惧。不要写最终正文。",
-    `创作 brief：\n${JSON.stringify(brief, null, 2)}\n\n当日星象事实：\n${astroBlock}\n\n参考资料：\n${refBlock(allRefs, ["astrology-signs.md", "astrology-daily-engine.md", "seth-consciousness-framework.md", "fortune-symbol-bank.md", "hook-patterns.md"])}`,
+    `创作 brief：\n${JSON.stringify(brief, null, 2)}\n\n当日命理底料（含来源标注）：\n${contextBlock}\n\n参考资料：\n${refBlock(allRefs, divergeRefs)}`,
     divergeSchema,
     "high",
     model
   );
-  addUsage(diverge, "diverge");
+  addUsage(diverge, "diverge", { refs: divergeRefs, inputKeys: ["brief", "context"], summary: `${diverge.result.angleOptions.length} angles, ${diverge.result.hookOptions.length} hooks` });
 
   // Stage 3 — judge (independent editor)
   const angleList = diverge.result.angleOptions.map((angle, index) => `[${index}] ${angle.angle} — ${angle.thesis}（场景：${angle.concreteScene}；风险：${angle.safetyRisk}）`).join("\n");
@@ -370,12 +400,12 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
   const judge = await runStage(
     "judge",
     "你是 X/Twitter 资深运营主编，独立而挑剔。用 operator rubric 七维（hookStrength/specificity/audienceFit/emotionalResonance/shareability/saveWorthiness/safety，各 1-5）给每个角度打总分，选出最强角度的下标，并从 hook 列表里选出 1-2 个最强 hook 的下标。只做评审与挑选，不改写、不写正文。优先选具体、有反差、安全的角度。",
-    `角度选项：\n${angleList}\n\nhook 选项：\n${hookList}\n\n参考资料：\n${refBlock(allRefs, ["operator-rubric.md", "golden-examples.md"])}`,
+    `角度选项：\n${angleList}\n\nhook 选项：\n${hookList}\n\n参考资料：\n${refBlock(allRefs, judgeRefs)}`,
     judgeSchema,
     "high",
     model
   );
-  addUsage(judge, "judge");
+  addUsage(judge, "judge", { refs: judgeRefs, inputKeys: ["angleOptions", "hookOptions"], summary: `selected angle #${judge.result.selectedAngleIndex}`, scores: Object.fromEntries(judge.result.angleScores.map((entry) => [`angle${entry.index}`, entry.total])) });
 
   const selectedAngleIdx = clampIndex(judge.result.selectedAngleIndex, diverge.result.angleOptions.length);
   const selectedAngle = diverge.result.angleOptions[selectedAngleIdx];
@@ -392,23 +422,37 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
   const draft = await runStage(
     "draft",
     `你是账号主笔，人设温柔但清醒、懂海外生活成本。基于选定角度、选定 hook、当日星象和星座画像写初稿。要有画面感、短句、适合手机阅读，至少包含两个受众真实场景，把月相/星期能量自然融入。按 Seth 意识框架，把象征翻译成注意力/信念/选择点/当下力量点/小行动，至少体现其一；不做确定性预测、不制造恐惧，把主动权还给读者。${lengthRule}`,
-    `创作 brief：\n${JSON.stringify(brief, null, 2)}\n\n选定角度：${selectedAngle.angle}（${selectedAngle.thesis}）\n选定 hook：\n${selectedHooks.map((hook) => `- (${hook.type}) ${hook.text}`).join("\n")}\n\n当日星象事实：\n${astroBlock}\n\n参考资料：\n${refBlock(allRefs, ["astrology-signs.md", "astrology-daily-engine.md", "seth-consciousness-framework.md", "x-long-tweet-patterns.md", "x-thread-patterns.md", "golden-examples.md"])}`,
+    `创作 brief：\n${JSON.stringify(brief, null, 2)}\n\n选定角度：${selectedAngle.angle}（${selectedAngle.thesis}）\n选定 hook：\n${selectedHooks.map((hook) => `- (${hook.type}) ${hook.text}`).join("\n")}\n\n当日命理底料（含来源标注）：\n${contextBlock}\n\n参考资料：\n${refBlock(allRefs, draftRefs)}`,
     draftSchema,
     "medium",
     model
   );
-  addUsage(draft, "draft");
+  addUsage(draft, "draft", { refs: draftRefs, inputKeys: ["brief", "selectedAngle", "context"], summary: `keyword=${draft.result.fortuneSpine.keyword}` });
 
   // Stage 5 — refine + safety
   const refine = await runStage(
     "refine",
     "你是终审运营编辑兼安全审查官。先按 operator rubric 七维真打分（1-5）。任何一维低于 4 必须改写到 4 分以上再产出 final（安全维度若因改写降级，在 problems 里说明）。做安全 reframe：移除任何绝对化/保证性/制造恐惧表达，把不安全请求改写为娱乐与反思 framing。final 的正文/thread 必须遵守输出类型规则。longTweet/both 时 final.longTweet.body 必须不少于 600 个中文字（目标 600-1200）；若初稿偏短，必须在改写时扩写到位，宁长勿短。另外必须保证：成稿体现 Seth agency framing（注意力/信念/概率线/选择点/当下力量点/小行动中至少一项），并移除任何宿命化表达（命中注定/无法改变/必然失去/不照做就倒霉/在劫难逃）。",
-    `原始请求（用于安全审查）：${input.topic}\n输出类型：${outputType}\n\n初稿 spine：\n${JSON.stringify(draft.result.fortuneSpine, null, 2)}\n\n初稿长推：\n${draft.result.draftLongTweet || "（无）"}\n\n初稿 thread：\n${JSON.stringify(draft.result.draftThread, null, 2)}\n\n参考资料：\n${refBlock(allRefs, ["operator-rubric.md", "fortune-safety-policy.md", "seth-consciousness-framework.md"])}`,
+    `原始请求（用于安全审查）：${input.topic}\n输出类型：${outputType}\n\n初稿 spine：\n${JSON.stringify(draft.result.fortuneSpine, null, 2)}\n\n初稿长推：\n${draft.result.draftLongTweet || "（无）"}\n\n初稿 thread：\n${JSON.stringify(draft.result.draftThread, null, 2)}\n\n参考资料：\n${refBlock(allRefs, refineRefs)}`,
     refineSchema,
     "high",
     model
   );
-  addUsage(refine, "refine");
+  addUsage(refine, "refine", {
+    refs: refineRefs,
+    inputKeys: ["draft", "spine"],
+    summary: `publishReadiness=${refine.result.reviewNotes.publishReadiness}`,
+    scores: {
+      hookStrength: refine.result.operatorCritique.hookStrength,
+      specificity: refine.result.operatorCritique.specificity,
+      audienceFit: refine.result.operatorCritique.audienceFit,
+      emotionalResonance: refine.result.operatorCritique.emotionalResonance,
+      shareability: refine.result.operatorCritique.shareability,
+      saveWorthiness: refine.result.operatorCritique.saveWorthiness,
+      safety: refine.result.operatorCritique.safety
+    },
+    warnings: refine.result.operatorCritique.problems
+  });
 
   // Length enforcement: the 600-1200 Chinese-char long-tweet contract is only
   // *requested* in earlier stages and is sometimes underdelivered. If the body is
@@ -419,12 +463,12 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
     const expand = await runStage(
       "expand",
       "你是账号主笔。下面这条今日运势长推正文偏短。在不改变选定角度、今日关键词、星象解读与安全定位的前提下，把它扩写到 600-1200 个中文字：补充具体的受众场景细节、情绪层次和自然过渡，保持短句、有画面感。不要灌水、不要重复、不要加入任何保证性或确定性表达。",
-      `当前正文（${shortLen} 字，偏短）：\n${finalLongBody}\n\nfortune spine：\n${JSON.stringify(draft.result.fortuneSpine, null, 2)}\n\n受众真实场景：\n${brief.realScenes.join("\n")}\n\n当日星象事实：\n${astroBlock}`,
+      `当前正文（${shortLen} 字，偏短）：\n${finalLongBody}\n\nfortune spine：\n${JSON.stringify(draft.result.fortuneSpine, null, 2)}\n\n受众真实场景：\n${brief.realScenes.join("\n")}\n\n当日命理底料：\n${contextBlock}`,
       expandSchema,
       "medium",
       model
     );
-    addUsage(expand, "expand");
+    addUsage(expand, "expand", { summary: `expand from ${shortLen} chars`, warnings: [`draft body short: ${shortLen} < ${MIN_LONG_TWEET_CHARS}`] });
     // Guard against a regression: only adopt the expanded body if it is actually longer.
     if (countChineseChars(expand.result.body) > shortLen) finalLongBody = expand.result.body;
   }
@@ -469,10 +513,19 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
     logError("fortune_pipeline_usage", new Error("trace"), { usage: usageTotals, sign: astro.sign, focus: astro.creativeFocusDomain, date: astro.dateISO, tz: astro.timeZone });
   }
 
+  trace.push({
+    stage: "finalize",
+    summary: `outputType=${outputType} bodyChars=${countChineseChars(finalLongBody)} thread=${dailyFortune.final.thread.length}`,
+    inputKeys: ["refine", "expand?"],
+    outputKeys: ["final", "operatorCritique", "engagementPlan", "reviewNotes"]
+  });
+
   return {
     dailyFortune,
     transcript: transcriptParts.join("\n\n"),
-    usage: usageTotals
+    usage: usageTotals,
+    context,
+    trace
   };
 }
 

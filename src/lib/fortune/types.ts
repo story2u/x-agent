@@ -21,3 +21,45 @@ export interface FortuneFactor<T = string> {
   confidence: FortuneConfidence;
   note?: string;
 }
+
+// Unified daily fortune底料: western (computed/symbolic), eastern (Slice 3, optional),
+// seth (writing lens), creative (rotation seeds). Every leaf is a provenance-tagged
+// FortuneFactor so the prompt and trace never blur facts and creative seeds.
+export interface FortuneContext {
+  dateISO: string;
+  timeZone: string;
+  western: {
+    weekdayPlanet: FortuneFactor;
+    moonPhase: FortuneFactor;
+    sunSeason: FortuneFactor;
+    signProfile?: FortuneFactor;
+  };
+  eastern?: {
+    zodiacYear?: FortuneFactor;
+    solarTerm?: FortuneFactor;
+    fiveElementHint?: FortuneFactor;
+    seasonalAdvice?: FortuneFactor;
+  };
+  seth: {
+    meaningLens: FortuneFactor;
+    agencyPrompt: FortuneFactor;
+    probabilityFrame: FortuneFactor;
+  };
+  creative: {
+    focusDomain: FortuneFactor;
+    emotionalWeather: FortuneFactor;
+    keywordCandidates: FortuneFactor<string[]>;
+  };
+}
+
+// Structured, per-stage debugging record. Holds summaries and artifact-level
+// intermediates only — never the model's private reasoning text.
+export interface FortunePipelineTrace {
+  stage: "context" | "understand" | "diverge" | "judge" | "draft" | "refine" | "expand" | "finalize";
+  summary: string;
+  inputKeys: string[];
+  outputKeys: string[];
+  selectedReferences?: string[];
+  scores?: Record<string, number>;
+  warnings?: string[];
+}

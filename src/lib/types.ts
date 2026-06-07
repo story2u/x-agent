@@ -1,3 +1,5 @@
+import type { FortuneContext, FortunePipelineTrace } from "@/lib/fortune/types";
+
 export type Tone = "sharp" | "warm" | "technical" | "playful" | "executive";
 
 export interface GenerateRequest {
@@ -133,6 +135,8 @@ export interface GenerateResponse {
   transcript: string;
   references?: GenerationReference[];
   skillTrace?: RunSkillTrace;
+  fortuneContext?: FortuneContext;
+  fortuneTrace?: FortunePipelineTrace[];
   usage?: {
     input: number;
     output: number;
