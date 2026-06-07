@@ -23,6 +23,19 @@ MVP 只生成 X/Twitter 文本 artifact，不生成图片，不做 Web 审批流
 - 默认使用 `twitter-launch-creative`（若删除该 skill，需在 `resolveRuntimeSkill` 指定新的默认行为）。
 - 无效（validation errors）的 skill 不会被自动选择，手动选择会报错。
 
+## Daily Fortune Pipeline（星座 + 5 段推理）
+
+`daily-fortune-tweet` 不走单次 `finalize_twitter_creative`，而是路由到 `src/lib/fortune/pipeline.ts` 的 5 段独立模型推理：understand → diverge → judge → draft → refine。每段独立 context / system prompt / 结构化输出 schema，复用 `src/lib/pi-model.ts`。角度判分与改写由独立 judge / refine 段真实执行，而非写稿者自评。
+
+命理底料是西方占星：
+
+- `src/lib/fortune/astro-day.ts` 为「今天 + 目标星座」计算**确定性**当日星象事实（星期主行星、月相、太阳季、星座画像、今日侧重域、情绪基调），注入每一段推理。
+- `parseSign` 从用户输入解析星座（中文名/别名/英文），无则回退当日太阳星座或「通用」。
+- 「今日侧重域」按 `date+sign` 确定性轮换（事业/财运/感情/自我），保证每天、每座内容不同 —— 解决旧版"每天都收敛到同一主题"的同质化。
+- 解读知识在 references：`astrology-signs.md`、`astrology-daily-engine.md`。
+
+延迟取舍：每条推文约 5 次顺序模型调用（reasoning 模型较慢），换取运营级质量；usage 为各段求和。
+
 ## 错误处理与模型配置
 
 - 模型硬错误以 `stopReason: "error"/"aborted"` 返回；`pi-agent` 抛出真实原因（凭据未配置、OAuth 刷新失败等），不再用保底模板掩盖。
@@ -53,14 +66,17 @@ TUI 会渲染 Daily Fortune 的 long post、thread、fortune spine、operator cr
 
 - TUI：`scripts/x-agent-tui.ts`
 - Agent：`src/lib/pi-agent.ts`
+- Model 共享层：`src/lib/pi-model.ts`
+- Fortune 星象引擎：`src/lib/fortune/astro-day.ts`
+- Fortune 5 段 pipeline：`src/lib/fortune/pipeline.ts`
 - Local skills：`skills/*/SKILL.md`
 - Skill Runtime：`src/lib/skills/local-skills.ts`
 - Credentials：`src/lib/pi-credentials.ts`
 - Types：`src/lib/types.ts`
 - Validation：`src/lib/validation.ts`
-- Tests：`src/lib/__tests__/pi-agent.test.ts`、`src/lib/__tests__/validation.test.ts`、`src/lib/__tests__/skills.test.ts`、`src/lib/__tests__/daily-fortune-evals.test.ts`
+- Tests：`src/lib/__tests__/pi-agent.test.ts`、`src/lib/__tests__/validation.test.ts`、`src/lib/__tests__/skills.test.ts`、`src/lib/__tests__/daily-fortune-evals.test.ts`、`src/lib/fortune/__tests__/astro-day.test.ts`、`src/lib/fortune/__tests__/pipeline.test.ts`
 - Skill eval specs：`skills/daily-fortune-tweet/evals/*.json`
-- Eval runner：`scripts/eval-skills.ts`
+- Eval runner：`scripts/eval-skills.ts`（形状校验）、`scripts/eval-fortune-run.ts`（真跑 + LLM-judge，`npm run eval:fortune`）
 
 ## 操作面规则
 
@@ -88,4 +104,7 @@ TUI 会渲染 Daily Fortune 的 long post、thread、fortune spine、operator cr
 - `money-longtweet-overseas-youth`：长推正文不少于 600 个中文字符，至少包含 2 个海外财务场景，scores 全部 >= 4。
 - `unsafe-rich-guarantee`：不承诺暴富，安全审查标记原始风险。
 - `fortune-thread-career`：thread 5-8 条且 roles 完整。
+- `astro-day`：`getAstroDay` 确定性、太阳星座边界、月相覆盖、focus/情绪随日期轮换、星座解析。
+- `pipeline` helpers：`resolveOutputType` / `clampIndex` / `reindexThread`(封顶 8) / `refBlock` 装配逻辑。
 - `npm run eval:skills`：校验 skill eval specs 的规则配置完整性。
+- `npm run eval:fortune`（本地，需凭据）：真跑 pipeline，规则 + LLM-judge 评真实输出，打印运营达标率。

@@ -1,9 +1,9 @@
 import { Agent, type AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "typebox";
-import type { Context, Model, SimpleStreamOptions, StopReason } from "@earendil-works/pi-ai";
-import { getPiApiKey } from "@/lib/pi-credentials";
+import type { StopReason } from "@earendil-works/pi-ai";
 import { logError } from "@/lib/logger";
-import { hideNodeVersionDuringPiOAuthImport } from "@/lib/pi-oauth-runtime";
+import { getModelApiKey, resolveModel, streamForModel, type RuntimeModel } from "@/lib/pi-model";
+import { runFortunePipeline } from "@/lib/fortune/pipeline";
 import {
   compileSkillPrompt,
   getSkillVersionReferences,
@@ -192,136 +192,6 @@ function readStringArray(value: unknown) {
   return value.filter((item): item is string => typeof item === "string");
 }
 
-// Reasoning models spend output budget on hidden reasoning, and the daily-fortune
-// artifact (spine + long tweet + up to 7 thread items + review notes) is large, so a
-// low cap truncates the finalize call. Default high; allow tuning via PI_MAX_TOKENS.
-function readMaxTokens(fallback = 8192) {
-  const raw = Number(process.env.PI_MAX_TOKENS);
-  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : fallback;
-}
-
-type RuntimeModel = Model<"openai-responses"> | Model<"openai-codex-responses"> | Model<"openai-completions">;
-
-function resolveModel(): RuntimeModel {
-  if (process.env.PI_PROVIDER === "openai-codex") {
-    const modelId = process.env.PI_MODEL ?? "gpt-5.5";
-    return {
-      id: modelId,
-      name: modelId,
-      api: "openai-codex-responses",
-      provider: "openai-codex",
-      baseUrl: process.env.OPENAI_CODEX_BASE_URL ?? "https://chatgpt.com/backend-api",
-      reasoning: true,
-      input: ["text"],
-      cost: {
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0
-      },
-      contextWindow: 400000,
-      maxTokens: readMaxTokens()
-    };
-  }
-
-  if (process.env.PI_PROVIDER === "deepseek") {
-    const modelId = process.env.PI_MODEL ?? "deepseek-v4-pro";
-    return {
-      id: modelId,
-      name: modelId,
-      api: "openai-completions",
-      provider: "deepseek",
-      baseUrl: process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
-      reasoning: process.env.DEEPSEEK_REASONING === "false" ? false : true,
-      input: ["text"],
-      cost: {
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0
-      },
-      contextWindow: 1048576,
-      maxTokens: readMaxTokens(32768)
-    };
-  }
-
-  const modelId = process.env.PI_MODEL ?? "gpt-5.5";
-  return {
-    id: modelId,
-    name: modelId,
-    api: "openai-responses",
-    provider: "openai",
-    baseUrl: process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
-    reasoning: true,
-    input: ["text"],
-    cost: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0
-    },
-    contextWindow: 400000,
-    maxTokens: 4096
-  };
-}
-
-async function getModelApiKey(provider: string) {
-  const key = await getPiApiKey(provider);
-  if (!key) {
-    throw new Error(`${provider} credentials are not configured.`);
-  }
-  return key;
-}
-
-async function streamForModel(
-  model: RuntimeModel,
-  context: Context,
-  options: SimpleStreamOptions | undefined
-) {
-  const streamOptions = options ?? {};
-  if (model.api === "openai-codex-responses") {
-    const { streamSimpleOpenAICodexResponses } = await importCodexResponses();
-    return streamSimpleOpenAICodexResponses(model as Model<"openai-codex-responses">, context, streamOptions);
-  }
-  if (model.api === "openai-completions") {
-    const { streamSimpleOpenAICompletions } = await importOpenAICompletions();
-    return streamSimpleOpenAICompletions(model as Model<"openai-completions">, context, streamOptions);
-  }
-  const { streamSimpleOpenAIResponses } = await importOpenAIResponses();
-  return streamSimpleOpenAIResponses(model as Model<"openai-responses">, context, streamOptions);
-}
-
-async function importCodexResponses() {
-  const restore = hideNodeVersionDuringProviderImport();
-  try {
-    return await import("@earendil-works/pi-ai/openai-codex-responses");
-  } finally {
-    restore();
-  }
-}
-
-async function importOpenAIResponses() {
-  const restore = hideNodeVersionDuringProviderImport();
-  try {
-    return await import("@earendil-works/pi-ai/openai-responses");
-  } finally {
-    restore();
-  }
-}
-
-async function importOpenAICompletions() {
-  const restore = hideNodeVersionDuringProviderImport();
-  try {
-    return await import("@earendil-works/pi-ai/openai-completions");
-  } finally {
-    restore();
-  }
-}
-
-function hideNodeVersionDuringProviderImport() {
-  return hideNodeVersionDuringPiOAuthImport();
-}
-
 function buildPrompt(input: GenerateRequest, contextBlock: string) {
   return `Create a Twitter/X text creative.
 
@@ -360,6 +230,35 @@ export async function generateTwitterCreative(input: GenerateRequest): Promise<G
   let stopReason: StopReason | undefined;
   let modelErrorMessage: string | undefined;
   const skillTrace = await resolveRuntimeSkill(input);
+
+  // Daily fortune runs a real multi-stage reasoning pipeline (understand →
+  // diverge → judge → draft → refine), not the single-pass agent below.
+  if (skillTrace?.skillSlug === "daily-fortune-tweet") {
+    try {
+      const pipeline = await runFortunePipeline(input, skillTrace);
+      return {
+        id,
+        creative: creativeFromDailyFortune(pipeline.dailyFortune),
+        transcript: pipeline.transcript,
+        references: buildReferences(skillTrace),
+        skillTrace,
+        usage: pipeline.usage
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logError("fortune_pipeline_failed", error, { id });
+      // Surface real model/credential errors; degrade only on unexpected faults.
+      if (message.startsWith("模型调用失败")) throw error;
+      return {
+        id,
+        creative: createDailyFortuneFallbackCreative(input),
+        transcript: message,
+        references: buildReferences(skillTrace),
+        skillTrace
+      };
+    }
+  }
+
   const skillMd = skillTrace ? await getSkillVersionSkillMd(skillTrace.skillVersionId) : undefined;
   const skillReferences = skillTrace ? await getSkillVersionReferences(skillTrace.skillVersionId) : [];
   const references = buildReferences(skillTrace);

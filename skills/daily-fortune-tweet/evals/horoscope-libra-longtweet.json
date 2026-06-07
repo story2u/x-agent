@@ -1,0 +1,53 @@
+{
+  "id": "horoscope-libra-longtweet",
+  "skill": "daily-fortune-tweet",
+  "input": "帮我写一条今日天秤座运势长推文，受众是海外中文年轻人，语气温柔有一点神秘感。",
+  "request": {
+    "audience": "海外中文年轻人",
+    "goal": "生成运营级今日星座运势长推文",
+    "tone": "warm",
+    "outputType": "longTweet"
+  },
+  "expect": {
+    "selectedSkill": "daily-fortune-tweet",
+    "outputType": "longTweet",
+    "minChineseChars": 600,
+    "minAngleOptions": 3,
+    "minHookOptions": 5,
+    "minRealScenes": 2,
+    "requiredFields": [
+      "audienceInsight",
+      "angleOptions[].thesis",
+      "angleOptions[].emotionalHook",
+      "hookOptions[].type",
+      "hookOptions[].whyItWorks",
+      "fortuneSpine.audienceSpecificScene",
+      "fortuneSpine.tinyRitual",
+      "fortuneSpine.closingImage",
+      "operatorCritique",
+      "engagementPlan",
+      "final.longTweet.body"
+    ],
+    "requiredHookTypes": [
+      "contrarian",
+      "scene",
+      "confession",
+      "mystical-image",
+      "practical-warning"
+    ],
+    "forbiddenPhrases": [
+      "一定脱单",
+      "必有正缘",
+      "桃花必旺",
+      "百分百",
+      "马上转运",
+      "命中注定"
+    ],
+    "minOperatorScore": 4,
+    "publishReadiness": [
+      "reviewed",
+      "publish-ready"
+    ],
+    "expectSign": "天秤座"
+  }
+}

@@ -4,8 +4,9 @@ description: Generate daily fortune-themed X/Twitter long posts and threads from
 metadata:
   category: content
   domain: fortune
+  system: astrology
   language: zh-CN
-  version: "2.0"
+  version: "3.0"
 allowed-tools: finalize_twitter_creative
 ---
 
@@ -30,6 +31,18 @@ allowed-tools: finalize_twitter_creative
 - 如涉及金钱，只能给出行为层面的温和提醒，例如“避免冲动消费”“先确认信息再下决定”“复核账单和订阅”。
 - 如果用户要求“今天一定暴富”“稳赚”“必有贵人”，必须在安全审查中标记风险，并改写为娱乐/反思 framing。
 
+## Astrology Grounding（星座底料）
+
+本技能以西方占星为命理底料。运行时会为「今天 + 目标星座」计算确定性星象事实并注入每一段推理（实现见 `src/lib/fortune/astro-day.ts`）：
+
+- 目标星座：从用户输入解析（如「今日天秤座运势」→ 天秤座）；未指定时回退当日太阳星座或「通用」。
+- 当日星象事实（确定性，不可臆造）：星期主行星能量、月相及其行为含义、太阳季节背景、今日侧重域（事业/财运/感情/自我，按日期+星座确定性轮换）、情绪基调。
+- 星座画像：元素、模式、守护星、核心驱动、阴影张力。
+
+解读规则见 references：`astrology-signs.md`（十二星座底料）、`astrology-daily-engine.md`（月相/星期/侧重域 → 当日基调）。
+
+要点：今天写什么主轴由「今日侧重域」决定；每天、每个星座的星象事实都不同，内容必须随之不同，不要每天都收敛到同一个主题。星座与月相只是情绪与行为的隐喻，不是命运开关（遵守 Safety Positioning）。
+
 ## When To Use
 
 Use this skill when the user asks for:
@@ -48,6 +61,8 @@ Use this skill when the user asks for:
 - Daily luck long tweet
 
 ## Workflow
+
+运行时把这套流程编排为 **5 段独立的模型推理**（understand → diverge → judge → draft → refine），而不是一次成稿；角度判分与改写由独立的「运营主编」段真实执行（实现见 `src/lib/fortune/pipeline.ts`）。下面的步骤描述每段应产出的内容与质量标准。
 
 Do not immediately write the final post. Produce the artifact through this sequence:
 
