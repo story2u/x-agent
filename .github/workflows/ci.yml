@@ -32,6 +32,12 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Eval specs (shape)
+        run: npm run eval:skills
+
+      - name: Eval harness (mock, no credentials)
+        run: npm run eval:fortune:mock
+
   quality:
     name: Quality Gates
     runs-on: ubuntu-latest

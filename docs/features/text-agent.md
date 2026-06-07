@@ -81,7 +81,7 @@ TUI 会渲染 Daily Fortune 的 long post、thread、fortune spine、operator cr
 - Validation：`src/lib/validation.ts`
 - Tests：`src/lib/__tests__/pi-agent.test.ts`、`src/lib/__tests__/validation.test.ts`、`src/lib/__tests__/skills.test.ts`、`src/lib/__tests__/daily-fortune-evals.test.ts`、`src/lib/fortune/__tests__/astro-day.test.ts`、`src/lib/fortune/__tests__/pipeline.test.ts`
 - Skill eval specs：`skills/daily-fortune-tweet/evals/*.json`
-- Eval runner：`scripts/eval-skills.ts`（形状校验）、`scripts/eval-fortune-run.ts`（真跑 + LLM-judge，`npm run eval:fortune`）
+- Eval runner：`scripts/eval-skills.ts`（形状校验 `eval:skills`）、`scripts/eval-fortune-run.ts`（`eval:fortune:mock` 离线自检 / `eval:fortune` 真跑 + LLM-judge）
 
 ## 操作面规则
 
@@ -112,4 +112,5 @@ TUI 会渲染 Daily Fortune 的 long post、thread、fortune spine、operator cr
 - `astro-day`：`getAstroDay` 确定性、太阳星座边界、月相覆盖、focus/情绪随日期轮换、星座解析。
 - `pipeline` helpers：`resolveOutputType` / `clampIndex` / `reindexThread`(封顶 8) / `refBlock` 装配逻辑。
 - `npm run eval:skills`：校验 skill eval specs 的规则配置完整性。
+- `npm run eval:fortune:mock`：离线 harness 自检（确定性 fixture，无凭据，CI 守门）。
 - `npm run eval:fortune`（本地，需凭据）：真跑 pipeline，规则 + LLM-judge 评真实输出，打印运营达标率。

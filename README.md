@@ -152,6 +152,7 @@ npm run lint
 npm test
 npm run eval:skills
 npm run eval:skill -- daily-fortune-tweet
+npm run eval:fortune:mock     # 离线 harness 自检（无需凭据，CI 跑这条）
 npm run eval:fortune          # 真跑 fortune pipeline + 规则 + LLM-judge（需模型凭据）
 ```
 

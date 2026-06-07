@@ -49,13 +49,14 @@ Skills 不再存储到 D1，也不再通过 Web Skill Studio 编辑。TUI 通过
 
 Skill eval specs live in `skills/<slug>/evals/*.json` and define machine-checkable quality rules such as required fields, minimum hook/angle counts, forbidden phrases, minimum operator scores, long-tweet length, and thread roles.
 
-质量门分两层：`eval:skills` 只校验 eval spec 的形状（无需凭据）；`eval:fortune` 会真跑 daily-fortune pipeline，并用确定性规则 + 独立 LLM-judge 对真实输出评分、打印运营达标率（需模型凭据）。
+质量门分三层：`eval:skills` 只校验 eval spec 的形状（无需凭据）；`eval:fortune:mock` 用确定性 fixture **离线**跑通 harness + 规则（无需凭据，进 CI）；`eval:fortune` 真跑 daily-fortune pipeline + 规则 + 独立 LLM-judge 对真实输出评分、打印运营达标率（需模型凭据）。
 
 Commands:
 
 ```bash
 npm run eval:skills                       # 形状校验（无需凭据）
 npm run eval:skill -- daily-fortune-tweet
+npm run eval:fortune:mock                 # 离线 harness 自检（无需凭据，进 CI）
 npm run eval:fortune                      # 真跑 pipeline + LLM-judge（需凭据，本地手动门）
 ```
 
@@ -78,4 +79,4 @@ npm run eval:fortune                      # 真跑 pipeline + LLM-judge（需凭
 - 不要把 skill source of truth 写回 D1。
 - 修改 validation 规则时要更新 `src/lib/__tests__/skills.test.ts`。
 - References 仅支持本地 Markdown 文件和 prompt 注入；Knowledge Base、Tools / Extensions 暂不作为 MVP TUI 功能。
-- Evals 分两层：`eval:skills` 校验 eval spec 形状（无需凭据）；`eval:fortune`（`scripts/eval-fortune-run.ts`）真跑 pipeline + 规则 + LLM-judge 评真实输出、打印运营达标率（需凭据）。
+- Evals 分三层：`eval:skills` 校验 spec 形状、`eval:fortune:mock` 离线跑通 harness + 规则（两者均无凭据、进 CI）；`eval:fortune`（`scripts/eval-fortune-run.ts`）真跑 pipeline + LLM-judge 评真实输出、打印运营达标率（需凭据）。

@@ -11,7 +11,7 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { Type } from "typebox";
+import { Type, type Static } from "typebox";
 import { generateTwitterCreative } from "../src/lib/pi-agent";
 import { resolveModel } from "../src/lib/pi-model";
 import { runStage } from "../src/lib/fortune/pipeline";
@@ -48,7 +48,10 @@ const SCENE_KEYWORDS = [
 ];
 
 const skillsRoot = process.env.X_AGENT_SKILLS_DIR ? path.resolve(process.env.X_AGENT_SKILLS_DIR) : path.join(process.cwd(), "skills");
-const specFilter = process.argv[2];
+const cliArgs = process.argv.slice(2);
+// Dry-run/mock: exercise the eval harness offline (no model, no credentials).
+const mockMode = cliArgs.includes("--mock") || process.env.EVAL_FORTUNE_MODE === "mock";
+const specFilter = cliArgs.find((arg) => !arg.startsWith("--"));
 const minPassRate = Number(process.env.EVAL_FORTUNE_MIN_PASS_RATE) || 0.6;
 
 const judgeSchema = Type.Object({
@@ -139,6 +142,85 @@ async function judge(spec: FortuneEvalSpec, fortune: DailyFortuneArtifact) {
   return result;
 }
 
+type JudgeResult = Static<typeof judgeSchema>;
+
+/** Deterministic passing judge stub for mock/dry-run mode (no model call). */
+function mockJudge(): JudgeResult {
+  return {
+    hookStrength: 5,
+    specificity: 5,
+    audienceFit: 5,
+    emotionalResonance: 5,
+    shareability: 5,
+    saveWorthiness: 5,
+    safety: 5,
+    verdict: true,
+    notes: "[mock] judge skipped (dry-run, no model)"
+  };
+}
+
+/**
+ * Deterministic fixture that passes every checkRules branch for the given spec.
+ * Used by mock/dry-run mode so CI / credential-less environments can exercise the
+ * full eval harness offline. NOT part of the generation pipeline.
+ */
+function mockFortune(spec: FortuneEvalSpec): DailyFortuneArtifact {
+  const outputType = (spec.expect.outputType === "thread" || spec.expect.outputType === "both" ? spec.expect.outputType : "longTweet") as DailyFortuneArtifact["outputType"];
+  const sign = spec.expect.expectSign ?? "今日";
+  const scenes = ["信用卡账单和订阅扣费", "朋友局 AA 和跨境转账手续费", "跨时区会议和拖着没回的消息"];
+  const sentences = [
+    `今日${sign}运势更像是一个提醒，而不是预言。`,
+    "今天的重点不是控制未来，而是把注意力收回到当下。",
+    "你正站在一个选择点上：一个小动作，就能把概率线轻轻拨向更稳的方向。",
+    `具体一点：${scenes[0]}、${scenes[1]}，都是今天最容易被忽略的小事。`,
+    `还有${scenes[2]}，先看见它，再决定怎么回应。`,
+    "这不是要你焦虑，而是把主动权重新放回你手里。",
+    "今天的小仪式：选一件最容易被忽略的小事，在今天结束前把它收口。",
+    "它不会立刻改变什么，但会让你更稳地接住接下来的事。"
+  ];
+  let body = sentences.join("");
+  while (countChineseChars(body) < 620) body += sentences[2] + sentences[6];
+
+  const thread: DailyFortuneArtifact["final"]["thread"] = [
+    { index: 1, text: `今日${sign}运势：关键词是「收回注意力」。今天不是预言，是一个选择点。`, role: "hook" },
+    { index: 2, text: `如果你最近在${scenes[2]}里反复消耗，累不是因为你不努力。`, role: "emotional context" },
+    { index: 3, text: `具体看：${scenes[0]}、${scenes[1]}，都值得今天看一眼。`, role: "concrete scene" },
+    { index: 4, text: "把象征落到当下：你正站在一个选择点上，不是命运的旁观者。", role: "fortune interpretation" },
+    { index: 5, text: "今日小动作：挑一件最容易忽略的小事，今天结束前收口。", role: "practical action" },
+    { index: 6, text: "小仪式：睡前把一件没说清的事，用三行写下来。", role: "ritual" },
+    { index: 7, text: "你今天最想先收回注意力的是哪件事？留一个词。", role: "CTA" }
+  ];
+
+  return {
+    selectedSkill: "daily-fortune-tweet",
+    outputType,
+    inputSummary: { topic: spec.input, audience: spec.request.audience, tone: spec.request.tone, assumptions: ["[mock] dry-run fixture"] },
+    audienceInsight: { corePain: "想变好但被日常小事悄悄消耗", realScenes: scenes, emotionalNeed: "需要一种恢复掌控感的温和提醒" },
+    angleOptions: [
+      { angle: "把注意力收回来", thesis: "今天的好运感来自收回注意力", emotionalHook: "你不是不努力，是一直在替别人想", concreteScene: scenes[0], whyItWorks: "具体且安全", safetyRisk: "无" },
+      { angle: "选择点而非命运", thesis: "今天是一个选择点", emotionalHook: "你可以拨动概率线", concreteScene: scenes[1], whyItWorks: "agency framing", safetyRisk: "无" },
+      { angle: "小动作收口", thesis: "一个小动作改变下一步", emotionalHook: "别小看一件小事", concreteScene: scenes[2], whyItWorks: "落到行动", safetyRisk: "无" }
+    ],
+    selectedAngle: { angle: "把注意力收回来", reason: "[mock]" },
+    hookOptions: [
+      { type: "contrarian", text: "今天不是预言，是一个选择点。", whyItWorks: "反转预期" },
+      { type: "scene", text: `打开${scenes[0]}前那几秒，就是今天的入口。`, whyItWorks: "场景代入" },
+      { type: "confession", text: "我更愿意把好运理解成收回注意力的能力。", whyItWorks: "建立人格" },
+      { type: "mystical-image", text: "今天像雾散到一半：方向能看见，但别硬冲。", whyItWorks: "意象" },
+      { type: "practical-warning", text: "今天先别在情绪高点下决定，给自己一个选择点。", whyItWorks: "落到行动" }
+    ],
+    fortuneSpine: { keyword: "收回注意力", symbolicImage: "雾散到一半", audienceSpecificScene: scenes[2], emotionalWeather: "想被理解又怕麻烦别人", coreTension: "想快，但今天适合先收回", practicalAdvice: "挑一件小事今天收口", tinyRitual: "睡前三行写下一件没说清的事", closingImage: "把注意力轻轻放回自己身上" },
+    draftV1: { longTweet: body, thread: outputType === "longTweet" ? [] : thread },
+    operatorCritique: { hookStrength: 5, specificity: 5, audienceFit: 5, emotionalResonance: 5, shareability: 5, saveWorthiness: 5, safety: 5, problems: [], rewriteDirection: "[mock]" },
+    final: {
+      longTweet: { title: `今日${sign}运势｜收回注意力`, body: outputType === "thread" ? "" : body, hashtags: ["今日运势", sign, "选择点"] },
+      thread: outputType === "longTweet" ? [] : thread
+    },
+    engagementPlan: { cta: "选一件今天要收回注意力的小事", commentPrompt: "你今天最想先收回注意力的是哪件事？", seriesLabel: "今日运势·选择点系列" },
+    reviewNotes: { safetyCheck: ["[mock] 定位为娱乐与反思，非预测"], hypeCheck: ["[mock] 无保证性表达"], publishReadiness: "publish-ready" }
+  };
+}
+
 function readSpecs(): FortuneEvalSpec[] {
   const evalsDir = path.join(skillsRoot, "daily-fortune-tweet", "evals");
   if (!existsSync(evalsDir)) return [];
@@ -159,6 +241,7 @@ async function main() {
 
   let passed = 0;
   let hardFailure = false;
+  if (mockMode) console.log("(mock/dry-run mode — no model calls)");
 
   for (const spec of specs) {
     console.log(`\n=== ${spec.id} ===`);
@@ -173,14 +256,18 @@ async function main() {
     };
 
     let fortune: DailyFortuneArtifact | undefined;
-    try {
-      const result = await generateTwitterCreative(request);
-      fortune = result.creative.dailyFortune;
-      if (result.usage) console.log(`tokens: ${result.usage.totalTokens}`);
-    } catch (error) {
-      console.error(`  RUN FAILED: ${error instanceof Error ? error.message : String(error)}`);
-      hardFailure = true;
-      continue;
+    if (mockMode) {
+      fortune = mockFortune(spec);
+    } else {
+      try {
+        const result = await generateTwitterCreative(request);
+        fortune = result.creative.dailyFortune;
+        if (result.usage) console.log(`tokens: ${result.usage.totalTokens}`);
+      } catch (error) {
+        console.error(`  RUN FAILED: ${error instanceof Error ? error.message : String(error)}`);
+        hardFailure = true;
+        continue;
+      }
     }
 
     if (!fortune) {
@@ -196,7 +283,7 @@ async function main() {
 
     let judgeOk = false;
     try {
-      const scores = await judge(spec, fortune);
+      const scores: JudgeResult = mockMode ? mockJudge() : await judge(spec, fortune);
       const dims = ["hookStrength", "specificity", "audienceFit", "emotionalResonance", "shareability", "saveWorthiness", "safety"] as const;
       const line = dims.map((dim) => `${dim}=${scores[dim]}`).join(" ");
       const minScore = spec.expect.minOperatorScore ?? 4;
