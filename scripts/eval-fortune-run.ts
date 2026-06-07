@@ -15,6 +15,7 @@ import { Type, type Static } from "typebox";
 import { generateTwitterCreative } from "../src/lib/pi-agent";
 import { resolveModel } from "../src/lib/pi-model";
 import { runStage } from "../src/lib/fortune/pipeline";
+import { fieldPresent } from "../src/lib/fortune/field-present";
 import type { DailyFortuneArtifact, GenerateRequest, Tone } from "../src/lib/types";
 
 if (existsSync(".env")) {
@@ -31,10 +32,15 @@ interface FortuneEvalSpec {
   input: string;
   request: { audience: string; goal: string; tone: string; outputType: string; date?: string; timeZone?: string };
   expect: {
+    selectedSkill?: string;
     outputType: string;
     minChineseChars?: number;
+    minAngleOptions?: number;
+    minHookOptions?: number;
     minRealScenes?: number;
+    requiredFields?: string[];
     requiredHookTypes?: string[];
+    requiredThreadRoles?: string[];
     forbiddenPhrases: string[];
     minOperatorScore?: number;
     publishReadiness?: string[];
@@ -129,6 +135,29 @@ function checkRules(spec: FortuneEvalSpec, fortune: DailyFortuneArtifact): RuleR
   const fatalHits = fatalism.filter((phrase) => content.includes(phrase));
   rules.push({ name: "noFatalism", ok: fatalHits.length === 0, detail: fatalHits.length ? `FOUND: ${fatalHits.join(", ")}` : "none" });
 
+  if (spec.expect.selectedSkill) {
+    rules.push({ name: "selectedSkill", ok: fortune.selectedSkill === spec.expect.selectedSkill, detail: fortune.selectedSkill });
+  }
+
+  if (spec.expect.minAngleOptions) {
+    rules.push({ name: "angleOptions", ok: fortune.angleOptions.length >= spec.expect.minAngleOptions, detail: `${fortune.angleOptions.length}/${spec.expect.minAngleOptions}` });
+  }
+
+  if (spec.expect.minHookOptions) {
+    rules.push({ name: "hookOptions", ok: fortune.hookOptions.length >= spec.expect.minHookOptions, detail: `${fortune.hookOptions.length}/${spec.expect.minHookOptions}` });
+  }
+
+  if (spec.expect.requiredThreadRoles) {
+    const roles = new Set<string>(fortune.final.thread.map((item) => item.role));
+    const missing = spec.expect.requiredThreadRoles.filter((role) => !roles.has(role));
+    rules.push({ name: "threadRoles", ok: missing.length === 0, detail: missing.length ? `missing: ${missing.join(", ")}` : "all" });
+  }
+
+  if (spec.expect.requiredFields) {
+    const missing = spec.expect.requiredFields.filter((field) => !fieldPresent(fortune, field));
+    rules.push({ name: "requiredFields", ok: missing.length === 0, detail: missing.length ? `missing: ${missing.join(", ")}` : `all ${spec.expect.requiredFields.length}` });
+  }
+
   return rules;
 }
 
@@ -214,7 +243,7 @@ function mockFortune(spec: FortuneEvalSpec): DailyFortuneArtifact {
     ],
     fortuneSpine: { keyword: "收回注意力", symbolicImage: "雾散到一半", audienceSpecificScene: scenes[2], emotionalWeather: "想被理解又怕麻烦别人", coreTension: "想快，但今天适合先收回", practicalAdvice: "挑一件小事今天收口", tinyRitual: "睡前三行写下一件没说清的事", closingImage: "把注意力轻轻放回自己身上" },
     draftV1: { longTweet: body, thread: outputType === "longTweet" ? [] : thread },
-    operatorCritique: { hookStrength: 5, specificity: 5, audienceFit: 5, emotionalResonance: 5, shareability: 5, saveWorthiness: 5, safety: 5, problems: [], rewriteDirection: "[mock]" },
+    operatorCritique: { hookStrength: 5, specificity: 5, audienceFit: 5, emotionalResonance: 5, shareability: 5, saveWorthiness: 5, safety: 5, problems: ["[mock] fixture critique placeholder"], rewriteDirection: "[mock]" },
     final: {
       longTweet: { title: `今日${sign}运势｜收回注意力`, body: outputType === "thread" ? "" : body, hashtags: ["今日运势", sign, "选择点"] },
       thread: outputType === "longTweet" ? [] : thread
