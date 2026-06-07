@@ -399,6 +399,33 @@ function needsLongTweetExpansion(outputType: FortuneOutputType, body: string): b
   return outputType !== "thread" && countChineseChars(body) < MIN_LONG_TWEET_CHARS;
 }
 
+function normalizeLongTweetOpening(body: string, keyword: string): string {
+  const lines = body.split(/\r?\n/);
+  const firstContentIndex = lines.findIndex((line) => line.trim());
+  if (firstContentIndex < 0) return body;
+
+  const firstLine = lines[firstContentIndex].trim();
+  if (!/^今日.*关键词\s*[:：]/.test(firstLine)) return body;
+
+  const paragraphs = body.split(/\n{2,}/).map((paragraph) => paragraph.trim()).filter(Boolean);
+  const hookCandidate = paragraphs.slice(1, 3).some((paragraph) => isHookLikeParagraph(paragraph, keyword.trim()));
+  if (!hookCandidate) return body;
+
+  const before = lines.slice(0, firstContentIndex);
+  const after = lines.slice(firstContentIndex + 1);
+  while (after[0]?.trim() === "") after.shift();
+  return [...before, ...after].join("\n").trim();
+}
+
+function isHookLikeParagraph(paragraph: string, keyword = ""): boolean {
+  const normalized = paragraph.replace(/\s+/g, " ").trim();
+  if (!normalized) return false;
+  if (keyword && normalized === keyword) return false;
+  if (/[？?]/.test(normalized)) return true;
+  if (/^(如果|你|先|别|今天不|别急|打开|月底|钱包|账单|购物车|外卖|咖啡|朋友局|有没有|是不是|先别)/.test(normalized)) return true;
+  return /偷家|我真的会谢|快乐减半|防漏日|冷静 24 小时|冷静24小时/.test(normalized);
+}
+
 export async function runFortunePipeline(input: GenerateRequest, skillTrace: RunSkillTrace, progress?: FortunePipelineProgressOptions): Promise<FortunePipelineResult> {
   const runId = progress?.runId ?? crypto.randomUUID();
   const model = resolveModel();
@@ -544,7 +571,7 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
       : "只写长推正文，必须不少于 600 个中文字（目标 600-1200），宁长勿短。draftThread 留空数组。";
   const draft = await runStage(
     "draft",
-    `你是账号主笔，人设温柔但清醒、懂海外生活成本。基于选定角度、选定 hook、当日星象和星座画像写初稿。要有画面感、短句、适合手机阅读，至少包含两个受众真实场景，把月相/星期能量自然融入。按 Seth 意识框架，把象征翻译成注意力/信念/选择点/当下力量点/小行动，至少体现其一；不做确定性预测、不制造恐惧，把主动权还给读者。成稿必须像真正发布的 X/Twitter 运势内容（默认受众海外年轻中文用户：娱乐/玩梗/解压/轻玄学）：不要写免责声明，不要把「这不是预言/仅供娱乐/娱乐与反思/概率线不是固定/情绪不是命令」等内部解释术语原样写进正文，不要用技术黑话（cron/API/terminal/server 等）除非用户明确要求技术受众。${lengthRule}`,
+    `你是账号主笔，人设温柔但清醒、懂海外生活成本。基于选定角度、选定 hook、当日星象和星座画像写初稿。要有画面感、短句、适合手机阅读，至少包含两个受众真实场景，把月相/星期能量自然融入。按 Seth 意识框架，把象征翻译成注意力/信念/选择点/当下力量点/小行动，至少体现其一；不做确定性预测、不制造恐惧，把主动权还给读者。成稿必须像真正发布的 X/Twitter 运势内容（默认受众海外年轻中文用户：娱乐/玩梗/解压/轻玄学）：多用海外生活梗（钱包/订阅/汇率/AA/外卖/咖啡/打车/购物车），每 2-3 段至少有一个轻松表达或小梗，结尾给一个自然互动问题；不要写免责声明，不要把「这不是预言/仅供娱乐/娱乐与反思/概率线不是固定/情绪不是命令」等内部解释术语原样写进正文，不要用技术黑话（AI 工具/SaaS/云服务/API/productivity app/builder/debug/terminal/cron/logs/hotfix/pending queue/drain queue/server/on-call 等）除非用户明确要求技术受众。draftLongTweet 第一行禁止是「今日财运关键词：X」或「今日XX关键词：X」；第一行必须是 scene / contrarian / confession / practical warning hook，关键词可以放到第二段之后。${lengthRule}`,
     `创作 brief：\n${JSON.stringify(brief, null, 2)}\n\n选定角度：${selectedAngle.angle}（${selectedAngle.thesis}）\n选定 hook：\n${selectedHooks.map((hook) => `- (${hook.type}) ${hook.text}`).join("\n")}\n\n当日命理底料（含来源标注）：\n${contextBlock}\n\n参考资料：\n${refBlock(allRefs, draftRefs)}`,
     draftSchema,
     "medium",
@@ -556,7 +583,7 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
   // Stage 5 — refine + safety
   const refine = await runStage(
     "refine",
-    "你是终审运营编辑兼安全审查官。先按 operator rubric 七维真打分（1-5）。任何一维低于 4 必须改写到 4 分以上再产出 final（安全维度若因改写降级，在 problems 里说明）。做安全 reframe：把绝对化/保证性/制造恐惧/不安全的表达**直接改写成自然的运势说法**，不向读者解释安全政策（安全结论只写进 reviewNotes，不写进正文）。final 的正文/thread 必须像自然发布的社交内容，禁止出现「把这条当作/仅供娱乐/娱乐与反思/不是预测/这不是预言/不构成投资建议/不保证/安全提醒/风险提示/Seth/pipeline/情绪不是命令/概率线不是固定」，默认受众海外年轻中文用户、禁止技术黑话（除非明确技术受众）。final 的正文/thread 必须遵守输出类型规则。longTweet/both 时 final.longTweet.body 必须不少于 600 个中文字（目标 600-1200）；若初稿偏短，必须在改写时扩写到位，宁长勿短。另外必须保证：成稿体现 agency framing（把象征落到注意力/选择/小动作，但不要照抄 reference 原句），并移除任何宿命化表达（命中注定/无法改变/必然失去/不照做就倒霉/在劫难逃）。",
+    "你是终审运营编辑兼安全审查官。先按 operator rubric 七维真打分（1-5）。任何一维低于 4 必须改写到 4 分以上再产出 final（安全维度若因改写降级，在 problems 里说明）。做安全 reframe：把绝对化/保证性/制造恐惧/不安全的表达**直接改写成自然的运势说法**，不向读者解释安全政策（安全结论只写进 reviewNotes，不写进正文）。final 的正文/thread 必须像自然发布的社交内容，有海外年轻中文用户会转发的解压感：保留生活梗、短句、轻玄学画面，避免说明文口吻，结尾必须有自然互动问题。禁止出现「把这条当作/仅供娱乐/娱乐与反思/不是预测/这不是预言/不构成投资建议/不保证/安全提醒/风险提示/Seth/pipeline/情绪不是命令/概率线不是固定」，默认受众海外年轻中文用户、禁止技术黑话（AI 工具/SaaS/云服务/API/productivity app/builder/debug/terminal/cron/logs/hotfix/pending queue/drain queue/server/on-call 等，除非明确技术受众）。final.longTweet.body 第一行禁止是「今日财运关键词：X」或「今日XX关键词：X」；第一行必须是 scene / contrarian / confession / practical warning hook，关键词可以放到第二段之后。final 的正文/thread 必须遵守输出类型规则。longTweet/both 时 final.longTweet.body 必须不少于 600 个中文字（目标 600-1200）；若初稿偏短，必须在改写时扩写到位，宁长勿短。另外必须保证：成稿体现 agency framing（把象征落到注意力/选择/小动作，但不要照抄 reference 原句），并移除任何宿命化表达（命中注定/无法改变/必然失去/不照做就倒霉/在劫难逃）。",
     `原始请求（用于安全审查）：${input.topic}\n输出类型：${outputType}\n\n初稿 spine：\n${JSON.stringify(draft.result.fortuneSpine, null, 2)}\n\n初稿长推：\n${draft.result.draftLongTweet || "（无）"}\n\n初稿 thread：\n${JSON.stringify(draft.result.draftThread, null, 2)}\n\n参考资料：\n${refBlock(allRefs, refineRefs)}`,
     refineSchema,
     "high",
@@ -582,12 +609,12 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
   // Length enforcement: the 600-1200 Chinese-char long-tweet contract is only
   // *requested* in earlier stages and is sometimes underdelivered. If the body is
   // short, run one focused expand pass and keep the longer result.
-  let finalLongBody = outputType === "thread" ? "" : refine.result.final.longTweet.body;
+  let finalLongBody = outputType === "thread" ? "" : normalizeLongTweetOpening(refine.result.final.longTweet.body, draft.result.fortuneSpine.keyword);
   if (needsLongTweetExpansion(outputType, finalLongBody)) {
     const shortLen = countChineseChars(finalLongBody);
     const expand = await runStage(
       "expand",
-      "你是账号主笔。下面这条今日运势长推正文偏短。在不改变选定角度、今日关键词、星象解读与安全定位的前提下，把它扩写到 600-1200 个中文字：补充具体的受众场景细节、情绪层次和自然过渡，保持短句、有画面感。不要灌水、不要重复、不要加入任何保证性或确定性表达。",
+      "你是账号主笔。下面这条今日运势长推正文偏短。在不改变选定角度、今日关键词、星象解读与安全定位的前提下，把它扩写到 600-1200 个中文字：补充具体的受众场景细节、情绪层次、生活梗和自然过渡，保持短句、有画面感、有解压感，结尾保留互动问题。不要灌水、不要重复、不要加入任何保证性或确定性表达。",
       `当前正文（${shortLen} 字，偏短）：\n${finalLongBody}\n\nfortune spine：\n${JSON.stringify(draft.result.fortuneSpine, null, 2)}\n\n受众真实场景：\n${brief.realScenes.join("\n")}\n\n当日命理底料：\n${contextBlock}`,
       expandSchema,
       "medium",
@@ -596,7 +623,8 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
     );
     addUsage(expand, "expand", { summary: `expand from ${shortLen} chars`, warnings: [`draft body short: ${shortLen} < ${MIN_LONG_TWEET_CHARS}`] });
     // Guard against a regression: only adopt the expanded body if it is actually longer.
-    if (countChineseChars(expand.result.body) > shortLen) finalLongBody = expand.result.body;
+    const expandedBody = normalizeLongTweetOpening(expand.result.body, draft.result.fortuneSpine.keyword);
+    if (countChineseChars(expandedBody) > shortLen) finalLongBody = expandedBody;
   }
 
   let finalThread = reindexThread(refine.result.final.thread);
@@ -606,19 +634,19 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
   // downgrade publishReadiness instead of silently shipping it.
   const surfaceText = () => [finalLongBody, ...finalThread.map((item) => item.text)].join("\n");
   let publicLeak = false;
-  if (validatePublicPostSurface(surfaceText()).length > 0) {
+  if (validatePublicPostSurface(surfaceText(), undefined, input.audience).length > 0) {
     const rewrite = await runStage(
       "public_rewrite",
-      "你是 X/Twitter 运营编辑。下面这条今日运势成稿混入了内部安全/审查/Seth 解释术语，读起来像 AI 安全报告而不是社交内容。请把它重写成自然、面向海外年轻中文用户的今日运势（娱乐/玩梗/解压/轻玄学），保留今日运势主题、关键词、具体场景和小动作；删除所有免责声明与审查话术；有风险的表达直接改写成安全但自然的运势说法，不向读者解释安全政策。绝对不要出现：把这条当作、仅供娱乐、娱乐与反思、不是预测、这不是预言、不构成投资建议、不保证、安全提醒、风险提示、Seth、pipeline、情绪不是命令、概率线不是固定；默认非技术受众，禁止技术黑话。",
+      "你是 X/Twitter 运营编辑。下面这条今日运势成稿混入了内部安全/审查/Seth 解释术语或技术圈黑话，读起来像 AI 安全报告/工具产品文案而不是社交内容。请把它重写成自然、面向海外年轻中文用户的今日运势（娱乐/玩梗/解压/轻玄学），保留今日运势主题、关键词、具体生活场景和小动作；加入钱包/订阅/汇率/AA/外卖/咖啡/打车/购物车这类生活梗，保持短句和结尾互动问题；删除所有免责声明、审查话术和技术黑话；有风险的表达直接改写成安全但自然的运势说法，不向读者解释安全政策。final.longTweet.body 第一行禁止是「今日财运关键词：X」或「今日XX关键词：X」；第一行必须是 scene / contrarian / confession / practical warning hook，关键词可以放到第二段之后。绝对不要出现：把这条当作、仅供娱乐、娱乐与反思、不是预测、这不是预言、不构成投资建议、不保证、安全提醒、风险提示、Seth、pipeline、情绪不是命令、概率线不是固定、AI 工具、SaaS、云服务、API、productivity app、builder、debug、terminal、cron、logs、hotfix、pending queue、drain queue、server、on-call；默认非技术受众，禁止技术黑话。",
       `输出类型：${outputType}\n关键词：${draft.result.fortuneSpine.keyword}；角度：${selectedAngle.angle}\n受众：${input.audience}\n\n当前长推：\n${finalLongBody || "（无）"}\n\n当前 thread：\n${JSON.stringify(finalThread, null, 2)}\n\n参考资料：\n${refBlock(allRefs, ["public-post-boundary.md", "playful-fortune-voice.md"])}`,
       publicRewriteSchema,
       "medium",
       model,
       { runId, onProgress: progress?.onProgress, label: "rewrite public surface" }
     );
-    if (outputType !== "thread" && rewrite.result.body.trim()) finalLongBody = rewrite.result.body;
+    if (outputType !== "thread" && rewrite.result.body.trim()) finalLongBody = normalizeLongTweetOpening(rewrite.result.body, draft.result.fortuneSpine.keyword);
     if (outputType !== "longTweet" && rewrite.result.thread.length) finalThread = reindexThread(rewrite.result.thread);
-    const remaining = validatePublicPostSurface(surfaceText());
+    const remaining = validatePublicPostSurface(surfaceText(), undefined, input.audience);
     publicLeak = remaining.length > 0;
     addUsage(rewrite, "public_rewrite", { refs: ["public-post-boundary.md", "playful-fortune-voice.md"], summary: publicLeak ? "still leaking after rewrite" : "cleaned", warnings: remaining.map((issue) => issue.phrase) });
   }
@@ -630,6 +658,7 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
         safetyCheck: [...refine.result.reviewNotes.safetyCheck, "public-surface leak: internal/safety language remained in the post — review before publishing."]
       }
     : refine.result.reviewNotes;
+  finalLongBody = normalizeLongTweetOpening(finalLongBody, draft.result.fortuneSpine.keyword);
 
   emitProgress(progress, {
     type: "stage_start",
@@ -704,5 +733,5 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
 }
 
 // Exported for tests and the eval harness so they can assemble/inspect without a model.
-export { resolveOutputType, refBlock, clampIndex, reindexThread, runStage, countChineseChars, needsLongTweetExpansion, MIN_LONG_TWEET_CHARS };
+export { resolveOutputType, refBlock, clampIndex, reindexThread, runStage, countChineseChars, needsLongTweetExpansion, normalizeLongTweetOpening, MIN_LONG_TWEET_CHARS };
 export type { AstroDay, StageRun };

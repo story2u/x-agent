@@ -16,7 +16,8 @@ npm run tui
 普通输入会直接生成：
 
 ```text
-x-agent auto/tweet/technical › 帮我生成一条今日财运长推文，受众是海外中文年轻人
+x-agent auto › 帮我生成一条今日财运长推文，受众是海外中文年轻人，语气轻松但有一点玄学感。
+effective daily-fortune-tweet/longTweet/playful audience=海外中文年轻人
 ```
 
 Slash commands：
@@ -30,6 +31,9 @@ Slash commands：
 /audience 海外中文年轻人
 /goal 生成适合 X 发布的长推文
 /constraints 不要确定性预测，不要投资建议
+/debug on
+/debug off
+/details
 /model
 /model deepseek
 /last
@@ -111,13 +115,14 @@ skills/<slug>/SKILL.md
 ## Current Capability
 
 - Single-input TUI client：`scripts/x-agent-tui.ts`
-- Slash command context control
+- Slash command context control；Daily Fortune 自然语言请求会自动归一化为海外年轻中文用户 / playful / longTweet（显式受众、语气、输出类型优先）
+- Public/debug display mode：默认只展示 effective context、可发布正文和 hashtags，`/debug on` 查看 pipeline/stage/model delta/tokens 与内部 artifact，`/details` 临时查看最近一次内部 artifact
 - Persistent TUI input history：default `.x-agent-tui-history`
 - Local Markdown skill loading：`src/lib/skills/local-skills.ts`
 - Text agent runtime：`src/lib/pi-agent.ts`
 - Default `twitter-launch-creative` skill
 - Default `daily-fortune-tweet` skill: astrology-grounded 5-stage reasoning pipeline (understand → diverge → judge → draft → refine) over a deterministic daily astrology engine
-- Fortune pipeline & astrology engine: `src/lib/fortune/pipeline.ts`, `src/lib/fortune/astro-day.ts`; shared model layer `src/lib/pi-model.ts`
+- Fortune pipeline & astrology engine: `src/lib/fortune/pipeline.ts`, `src/lib/fortune/astro-day.ts`; request overrides `src/lib/fortune/request-overrides.ts`; shared model layer `src/lib/pi-model.ts`
 - Daily Fortune eval specs (`skills/daily-fortune-tweet/evals/*.json`) + real model-in-loop eval (`npm run eval:fortune`)
 - ChatGPT Plus/Pro OAuth credential refresh through pi-ai
 - DeepSeek API provider through OpenAI-compatible Chat Completions

@@ -35,6 +35,26 @@ Do not include these in final public content:
 - 情绪不是命令
 - 概率线不是固定
 
+## Non-technical audience jargon ban
+
+Default audience is overseas young Chinese users, not builders or engineers. Unless the user explicitly asks for technical/programmer/engineer/developer readers, final public content must not include:
+
+- AI 工具
+- SaaS
+- 云服务
+- API
+- productivity app
+- builder
+- debug
+- terminal
+- cron
+- logs
+- hotfix
+- pending queue
+- drain queue
+- server
+- on-call
+
 ## Correct behavior
 
 If a draft contains an unsafe claim, **rewrite the claim into a safe fortune-style expression**.

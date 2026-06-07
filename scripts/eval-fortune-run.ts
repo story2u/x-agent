@@ -45,6 +45,7 @@ interface FortuneEvalSpec {
     forbiddenPhrases: string[];
     publicForbiddenPhrases?: string[];
     forbidTechnicalJargonUnlessTechnicalAudience?: boolean;
+    noKeywordOpening?: boolean;
     minOperatorScore?: number;
     publishReadiness?: string[];
     expectSign?: string;
@@ -101,6 +102,11 @@ function checkRules(spec: FortuneEvalSpec, fortune: DailyFortuneArtifact): RuleR
   if (spec.expect.minChineseChars && spec.expect.outputType !== "thread") {
     const chars = countChineseChars(fortune.final.longTweet.body);
     rules.push({ name: "minChineseChars", ok: chars >= spec.expect.minChineseChars, detail: `${chars}/${spec.expect.minChineseChars}` });
+  }
+
+  if (spec.expect.noKeywordOpening && spec.expect.outputType !== "thread") {
+    const firstLine = firstNonEmptyLine(fortune.final.longTweet.body);
+    rules.push({ name: "noKeywordOpening", ok: !/^今日.*关键词\s*[:：]/.test(firstLine), detail: firstLine ? firstLine.slice(0, 120) : "(empty)" });
   }
 
   const sceneHits = SCENE_KEYWORDS.filter((kw) => content.includes(kw));
@@ -162,7 +168,7 @@ function checkRules(spec: FortuneEvalSpec, fortune: DailyFortuneArtifact): RuleR
   }
 
   // Public surface: internal safety / Seth / review language must not reach the post.
-  const publicIssues = validatePublicPostSurface(content, spec.expect.publicForbiddenPhrases);
+  const publicIssues = validatePublicPostSurface(content, spec.expect.publicForbiddenPhrases, spec.request.audience);
   rules.push({ name: "publicSurface", ok: publicIssues.length === 0, detail: publicIssues.length ? `FOUND: ${publicIssues.map((issue) => issue.phrase).join(", ")}` : "clean" });
 
   // Technical jargon: banned unless the audience is explicitly technical.
@@ -172,6 +178,10 @@ function checkRules(spec: FortuneEvalSpec, fortune: DailyFortuneArtifact): RuleR
   }
 
   return rules;
+}
+
+function firstNonEmptyLine(value: string): string {
+  return value.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? "";
 }
 
 async function judge(spec: FortuneEvalSpec, fortune: DailyFortuneArtifact) {
@@ -211,10 +221,11 @@ function mockJudge(): JudgeResult {
  */
 function mockFortune(spec: FortuneEvalSpec): DailyFortuneArtifact {
   const outputType = (spec.expect.outputType === "thread" || spec.expect.outputType === "both" ? spec.expect.outputType : "longTweet") as DailyFortuneArtifact["outputType"];
-  const sign = spec.expect.expectSign ?? "今日";
+  const sign = spec.expect.expectSign ?? "财运";
+  const topicLabel = sign.endsWith("座") ? `${sign}运势` : sign;
   const scenes = ["信用卡账单和订阅扣费", "朋友局 AA 和跨境转账手续费", "跨时区会议和拖着没回的消息"];
   const sentences = [
-    `今日${sign}运势：钱包防漏日。`,
+    `今日${topicLabel}：钱包防漏日。`,
     "先别急着问会不会突然进账，今天的主线是别被小钱偷家。",
     `${scenes[0]}、${scenes[1]}，海外生活的隐形漏水口，今天值得逐个看一眼。`,
     "外卖、咖啡、打车这海外三件套，单次都不痛，月底一起结账才懂什么叫汇率一换、快乐减半。",
@@ -229,7 +240,7 @@ function mockFortune(spec: FortuneEvalSpec): DailyFortuneArtifact {
   while (countChineseChars(body) < 620) body += sentences[2] + sentences[6];
 
   const thread: DailyFortuneArtifact["final"]["thread"] = [
-    { index: 1, text: `今日${sign}运势：钱包防漏日。今天不求突然进账，先求别被小钱偷家。`, role: "hook" },
+    { index: 1, text: `今日${topicLabel}：钱包防漏日。今天不求突然进账，先求别被小钱偷家。`, role: "hook" },
     { index: 2, text: `如果你最近总觉得没乱花却还是月底吃土，问题往往不在大钱，在${scenes[2]}里的反复内耗。`, role: "emotional context" },
     { index: 3, text: `点名三件套：${scenes[0]}、${scenes[1]}、外卖咖啡打车，海外钱包的隐形漏水口。`, role: "concrete scene" },
     { index: 4, text: "今天的画风不是大开大合，是把散出去的小钱一笔笔接回来。", role: "fortune interpretation" },

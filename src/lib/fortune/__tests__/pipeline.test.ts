@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampIndex, countChineseChars, MIN_LONG_TWEET_CHARS, needsLongTweetExpansion, refBlock, reindexThread, resolveOutputType } from "@/lib/fortune/pipeline";
+import { clampIndex, countChineseChars, MIN_LONG_TWEET_CHARS, needsLongTweetExpansion, normalizeLongTweetOpening, refBlock, reindexThread, resolveOutputType } from "@/lib/fortune/pipeline";
 import type { DailyFortuneThreadItem, GenerateRequest } from "@/lib/types";
 
 function req(outputType?: GenerateRequest["outputType"]): GenerateRequest {
@@ -94,5 +94,32 @@ describe("needsLongTweetExpansion", () => {
 
   it("never expands thread output (no long body expected)", () => {
     expect(needsLongTweetExpansion("thread", short)).toBe(false);
+  });
+});
+
+describe("normalizeLongTweetOpening", () => {
+  it("removes template keyword opening when a hook follows", () => {
+    const body = `今日财运关键词：收口
+
+今天不求暴富，先求别被小钱偷家。
+
+关键词可以放后面再解释。`;
+
+    expect(normalizeLongTweetOpening(body, "收口").startsWith("今天不求暴富")).toBe(true);
+  });
+
+  it("removes keyword openings even when the emitted keyword differs from the spine keyword", () => {
+    const body = `今日财运关键词：补漏
+
+别急着问今天会不会突然进账，先看看钱包有没有被自动续费偷家。
+
+关键词后面再解释。`;
+
+    expect(normalizeLongTweetOpening(body, "收口").startsWith("别急着问")).toBe(true);
+  });
+
+  it("keeps non-template openings unchanged", () => {
+    const body = "今天不求暴富，先求别被小钱偷家。\n\n关键词是收口。";
+    expect(normalizeLongTweetOpening(body, "收口")).toBe(body);
   });
 });

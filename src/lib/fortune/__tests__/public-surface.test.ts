@@ -18,11 +18,21 @@ describe("validatePublicPostSurface", () => {
 describe("technical jargon guard", () => {
   it("treats overseas-youth audiences as non-technical and finds jargon", () => {
     expect(isTechnicalAudience("海外中文年轻人")).toBe(false);
-    expect(findTechnicalJargon("今天清空你的 pending queue，重启 cron")).toEqual(expect.arrayContaining(["pending queue", "cron"]));
+    expect(findTechnicalJargon("今天清空你的 pending queue，重启 cron，顺手 debug 一下 API")).toEqual(expect.arrayContaining(["pending queue", "cron", "debug", "API"]));
+    expect(findTechnicalJargon("AI 工具、SaaS 和云服务都别进正文")).toEqual(expect.arrayContaining(["AI 工具", "SaaS", "云服务"]));
+  });
+
+  it("flags technical jargon in public-surface validation for non-technical audiences", () => {
+    expect(validatePublicPostSurface("今天别让 SaaS 账单偷家", undefined, "海外中文年轻人")).toEqual([
+      { phrase: "SaaS", reason: "technical jargon leaked into non-technical public post" }
+    ]);
+    expect(validatePublicPostSurface("今天看一眼 API logs", undefined, "AI engineers")).toEqual([]);
   });
 
   it("recognizes explicitly technical audiences", () => {
     expect(isTechnicalAudience("AI engineers and developers")).toBe(true);
+    expect(isTechnicalAudience("software engineers")).toBe(true);
+    expect(isTechnicalAudience("technical product owners")).toBe(true);
     expect(isTechnicalAudience("程序员")).toBe(true);
     expect(isTechnicalAudience("工程师/技术从业者")).toBe(true);
   });

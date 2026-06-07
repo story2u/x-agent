@@ -5,6 +5,7 @@ import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { generateTwitterCreative } from "../src/lib/pi-agent";
+import { deriveFortuneRequestOverrides, isFortuneRequest } from "../src/lib/fortune/request-overrides";
 import { listLocalSkills } from "../src/lib/skills/local-skills";
 import type { GenerateProgressEvent, GenerateRequest, GenerateResponse, Tone } from "../src/lib/types";
 import type { FortuneFactor } from "../src/lib/fortune/types";
@@ -23,6 +24,14 @@ const TONES: Tone[] = ["technical", "warm", "sharp", "playful", "executive"];
 const OUTPUT_TYPES: NonNullable<GenerateRequest["outputType"]>[] = ["tweet", "thread", "longTweet", "both"];
 const MODEL_PROVIDERS = ["openai-codex", "openai", "deepseek"] as const;
 type ModelProvider = (typeof MODEL_PROVIDERS)[number];
+type DisplayMode = "public" | "debug";
+
+interface EffectiveLabel {
+  skill: string;
+  tone: Tone;
+  outputType: NonNullable<GenerateRequest["outputType"]>;
+  audience: string;
+}
 
 const ansi = {
   bold: "\x1b[1m",
@@ -42,6 +51,8 @@ interface TuiState {
   constraints: string;
   date: string;
   timeZone: string;
+  displayMode: DisplayMode;
+  effectiveLabel?: EffectiveLabel;
   history: GenerateResponse[];
 }
 
@@ -74,6 +85,7 @@ const state: TuiState = {
   constraints: process.env.X_AGENT_CONSTRAINTS || "No unverifiable benchmarks. Do not overclaim.",
   date: process.env.X_AGENT_DATE || "",
   timeZone: process.env.X_AGENT_TIMEZONE || "",
+  displayMode: "public",
   history: []
 };
 
@@ -130,20 +142,34 @@ async function runBatchInput(value: string) {
 }
 
 async function runAgent(command: string) {
+  const overrides = deriveFortuneRequestOverrides(command);
+  const fortuneRequest = isFortuneRequest(command);
+  const effectiveAudience = overrides.audience ?? state.audience;
+  const effectiveTone = overrides.tone ?? state.tone;
+  const effectiveOutputType = overrides.outputType ?? state.outputType;
+  const effectiveSkill = state.skill === "auto" && fortuneRequest ? "daily-fortune-tweet" : state.skill;
+  state.effectiveLabel = {
+    skill: effectiveSkill,
+    tone: effectiveTone,
+    outputType: effectiveOutputType,
+    audience: effectiveAudience
+  };
+
   const request: GenerateRequest = {
     topic: command,
-    audience: state.audience,
+    audience: effectiveAudience,
     goal: state.goal,
-    tone: state.tone,
+    tone: effectiveTone,
     constraints: state.constraints,
-    outputType: state.outputType,
+    outputType: effectiveOutputType,
     runMode: "draft",
     date: state.date || undefined,
     timeZone: state.timeZone || undefined,
     skillIds: state.skill === "auto" ? undefined : [state.skill]
   };
 
-  const progress = createProgressPrinter();
+  printEffectiveLabel(state.effectiveLabel);
+  const progress = createProgressPrinter(state.displayMode);
   try {
     const result = await generateTwitterCreative(request, { onProgress: progress.onProgress });
     progress.finish();
@@ -197,6 +223,9 @@ async function handleCommand(raw: string) {
     case "constraints":
       setText("constraints", value);
       return false;
+    case "debug":
+      setDebugMode(value);
+      return false;
     case "date":
       state.date = value;
       console.log(value ? `date = ${value}` : "date = (auto: today)");
@@ -210,6 +239,9 @@ async function handleCommand(raw: string) {
       return false;
     case "last":
       printLast();
+      return false;
+    case "details":
+      printDetails();
       return false;
     case "history":
       printHistory();
@@ -248,6 +280,7 @@ async function printSkills() {
 async function setSkill(value: string) {
   if (!value || value === "auto") {
     state.skill = "auto";
+    state.effectiveLabel = undefined;
     console.log("skill = auto");
     return;
   }
@@ -264,6 +297,7 @@ async function setSkill(value: string) {
     return;
   }
   state.skill = selected.slug;
+  state.effectiveLabel = undefined;
   console.log(`skill = ${selected.slug}`);
 }
 
@@ -273,6 +307,7 @@ function setEnum<K extends "tone" | "outputType">(key: K, value: string, allowed
     return;
   }
   state[key] = value as TuiState[K];
+  state.effectiveLabel = undefined;
   console.log(`${key} = ${value}`);
 }
 
@@ -282,6 +317,7 @@ function setText(key: "audience" | "goal" | "constraints", value: string) {
     return;
   }
   state[key] = value;
+  state.effectiveLabel = undefined;
   console.log(`${key} updated`);
 }
 
@@ -307,6 +343,8 @@ Slash commands:
   /audience <text>
   /goal <text>
   /constraints <text>
+  /debug on|off                 toggle detailed artifact rendering
+  /details                      show last artifact with debug details
   /date <YYYY-MM-DD>            set run date (blank = today)
   /timezone <IANA tz>          set timezone (blank = system)
   /config                       show request context
@@ -342,6 +380,11 @@ function printConfig() {
   console.log(`audience    ${state.audience}`);
   console.log(`goal        ${state.goal}`);
   console.log(`constraints ${state.constraints}`);
+  console.log(`display     ${state.displayMode}`);
+  if (state.effectiveLabel) {
+    console.log(`effective   ${state.effectiveLabel.skill}/${state.effectiveLabel.outputType}/${state.effectiveLabel.tone}`);
+    console.log(`eff audience ${state.effectiveLabel.audience}`);
+  }
   console.log(`date        ${state.date || "(auto: today)"}`);
   console.log(`timezone    ${state.timeZone || "(auto: system)"}`);
 }
@@ -408,10 +451,29 @@ function printCredentialHint(provider: ModelProvider) {
   }
 }
 
-function createProgressPrinter() {
+function setDebugMode(value: string) {
+  if (value === "on" || value === "true" || value === "1") {
+    state.displayMode = "debug";
+    console.log("debug = on");
+    return;
+  }
+  if (value === "off" || value === "false" || value === "0") {
+    state.displayMode = "public";
+    console.log("debug = off");
+    return;
+  }
+  console.log(`debug = ${state.displayMode === "debug" ? "on" : "off"}`);
+}
+
+function printEffectiveLabel(label: EffectiveLabel) {
+  console.log(`${ansi.dim}effective ${label.skill}/${label.outputType}/${label.tone} audience=${label.audience}${ansi.reset}`);
+}
+
+function createProgressPrinter(displayMode: DisplayMode) {
   let streamStage = "";
   let streamOpen = false;
   let lastErrorMessage = "";
+  const debug = displayMode === "debug";
 
   const closeStream = () => {
     if (!streamOpen) return;
@@ -428,26 +490,32 @@ function createProgressPrinter() {
   const onProgress = (event: GenerateProgressEvent) => {
     switch (event.type) {
       case "pipeline_start":
+        if (!debug) return;
         closeStream();
         console.log(`${ansi.dim}pipeline ${event.pipeline} ${event.provider}/${event.model}${event.skillSlug ? ` skill=${event.skillSlug}` : ""}${ansi.reset}`);
         return;
       case "pipeline_end":
+        if (!debug) return;
         closeStream();
         console.log(`${ansi.dim}pipeline done${event.usage ? `, tokens ${event.usage.totalTokens} total` : ""}${ansi.reset}`);
         return;
       case "stage_start":
+        if (!debug) return;
         closeStream();
         console.log(`${ansi.dim}${printStagePrefix(event)} ${event.label}${event.detail ? ` - ${event.detail}` : ""}${ansi.reset}`);
         return;
       case "stage_end":
+        if (!debug) return;
         closeStream();
         console.log(`${ansi.green}ok${ansi.reset} ${event.label}${event.summary ? ` - ${event.summary}` : ""}`);
         return;
       case "tool_call":
+        if (!debug) return;
         closeStream();
         console.log(`${ansi.dim}tool ${event.toolName}${event.label ? ` - ${event.label}` : ""}${ansi.reset}`);
         return;
       case "text_delta":
+        if (!debug) return;
         if (!event.delta) return;
         if (!streamOpen || streamStage !== event.stage) {
           closeStream();
@@ -470,7 +538,29 @@ function createProgressPrinter() {
   return { onProgress, finish: closeStream, hasPrintedError };
 }
 
-function printResult(result: GenerateResponse) {
+function printResult(result: GenerateResponse, displayMode: DisplayMode = state.displayMode) {
+  if (displayMode === "public") {
+    printPublicResult(result);
+    return;
+  }
+  printDebugResult(result);
+}
+
+function printPublicResult(result: GenerateResponse) {
+  const { creative } = result;
+  console.log("");
+  console.log(`${ansi.green}${ansi.bold}artifact${ansi.reset}`);
+  if (creative.dailyFortune) {
+    printDailyFortunePublic(creative.dailyFortune);
+  } else {
+    console.log(`${ansi.bold}tweet${ansi.reset}`);
+    console.log(creative.tweet);
+  }
+  if (creative.hashtags.length) console.log(`\n${ansi.bold}hashtags${ansi.reset}\n${creative.hashtags.join(" ")}`);
+  console.log("");
+}
+
+function printDebugResult(result: GenerateResponse) {
   const { creative, skillTrace, usage } = result;
   console.log("");
   if (creative.rationale.startsWith("Fallback artifact")) {
@@ -498,6 +588,17 @@ function printResult(result: GenerateResponse) {
     console.log(`${ansi.dim}tokens ${usage.totalTokens} total${ansi.reset}`);
   }
   console.log("");
+}
+
+function printDailyFortunePublic(fortune: NonNullable<GenerateResponse["creative"]["dailyFortune"]>) {
+  if (fortune.final.longTweet.body) {
+    console.log(`${ansi.bold}long post${ansi.reset}`);
+    console.log(fortune.final.longTweet.body);
+  }
+  if (fortune.final.thread.length) {
+    console.log(`${fortune.final.longTweet.body ? "\n" : ""}${ansi.bold}thread${ansi.reset}`);
+    for (const item of fortune.final.thread) console.log(`${item.index}. ${item.text}`);
+  }
 }
 
 function printDailyFortune(fortune: NonNullable<GenerateResponse["creative"]["dailyFortune"]>) {
@@ -549,6 +650,15 @@ function printLast() {
     return;
   }
   printResult(last);
+}
+
+function printDetails() {
+  const last = state.history[0];
+  if (!last) {
+    console.log("No artifact yet.");
+    return;
+  }
+  printResult(last, "debug");
 }
 
 function printHistory() {
@@ -617,8 +727,14 @@ function printFortuneContext() {
 }
 
 function promptLabel() {
-  const skill = state.skill === "auto" ? "auto" : state.skill;
-  return `${ansi.bold}x-agent${ansi.reset} ${ansi.dim}${skill}/${state.outputType}/${state.tone}${ansi.reset} › `;
+  const effective = state.effectiveLabel;
+  if (!effective && state.skill === "auto" && state.outputType === "tweet" && state.tone === "technical") {
+    return `${ansi.bold}x-agent${ansi.reset} ${ansi.dim}auto${ansi.reset} › `;
+  }
+  const skill = effective?.skill ?? (state.skill === "auto" ? "auto" : state.skill);
+  const outputType = effective?.outputType ?? state.outputType;
+  const tone = effective?.tone ?? state.tone;
+  return `${ansi.bold}x-agent${ansi.reset} ${ansi.dim}${skill}/${outputType}/${tone}${ansi.reset} › `;
 }
 
 function resolveHistoryFile() {

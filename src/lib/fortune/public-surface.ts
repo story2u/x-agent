@@ -30,11 +30,18 @@ export const PUBLIC_FORBIDDEN_PHRASES = [
 
 // Technical jargon — banned in public content unless the audience is explicitly technical.
 export const TECHNICAL_JARGON = [
+  "AI 工具",
+  "AI工具",
+  "SaaS",
+  "云服务",
   "cron",
   "logs",
   "API",
   "cloud",
   "dashboard",
+  "productivity app",
+  "builder",
+  "debug",
   "terminal",
   "hotfix",
   "pending queue",
@@ -44,10 +51,12 @@ export const TECHNICAL_JARGON = [
 ];
 
 /** Phrases (forbidden by default) that leaked into reader-facing text. */
-export function validatePublicPostSurface(text: string, forbidden: string[] = PUBLIC_FORBIDDEN_PHRASES): PublicSurfaceIssue[] {
-  return forbidden
+export function validatePublicPostSurface(text: string, forbidden: string[] = PUBLIC_FORBIDDEN_PHRASES, audience?: string): PublicSurfaceIssue[] {
+  const phraseIssues = forbidden
     .filter((phrase) => text.includes(phrase))
     .map((phrase) => ({ phrase, reason: "internal review/safety language leaked into public post" }));
+  const jargonIssues = isTechnicalAudience(audience) ? [] : findTechnicalJargon(text).map((phrase) => ({ phrase, reason: "technical jargon leaked into non-technical public post" }));
+  return [...phraseIssues, ...jargonIssues];
 }
 
 /** True only when the audience explicitly asks for a technical readership. */
@@ -55,7 +64,7 @@ export function isTechnicalAudience(audience: string | undefined): boolean {
   if (!audience) return false;
   if (["技术", "程序员", "工程师"].some((marker) => audience.includes(marker))) return true;
   // Word-boundary match so "retail"/"campaign" are not misread as technical.
-  return /\b(ai|developer|engineer)\b/.test(audience.toLowerCase());
+  return /\b(ai|technical|developers?|engineers?)\b/.test(audience.toLowerCase());
 }
 
 /** Technical jargon present in the text (case-insensitive). */

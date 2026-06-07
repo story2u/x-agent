@@ -309,10 +309,10 @@ export async function generateTwitterCreative(input: GenerateRequest, options?: 
       return response;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      emitProgressError(options, id, "daily_fortune_pipeline", error);
       logError("fortune_pipeline_failed", error, { id });
       // Surface real model/credential errors; degrade only on unexpected faults.
       if (message.startsWith("模型调用失败")) throw error;
+      emitProgressError(options, id, "daily_fortune_pipeline", error);
       const response = {
         id,
         creative: createDailyFortuneFallbackCreative(input),
@@ -538,26 +538,33 @@ export function createDailyFortuneFallbackCreative(input: GenerateRequest): Twit
         : theme === "人际"
           ? "重要的话慢半拍再说，把边界和期待讲清楚。"
           : "今天先观察信号，少做一个冲动决定，多确认一次信息。";
-  const title = `今日${theme}运势｜${keyword}`;
+  const titleTheme = theme === "综合" ? "今日运势" : theme === "财运" ? "今日财运" : `今日${theme}运`;
+  const title = `${titleTheme}｜${keyword}`;
+  const openingHook =
+    theme === "财运"
+      ? "今天不求暴富，先求别被小钱偷家。"
+      : theme === "事业"
+        ? "今天先别急着证明自己，先把一个模糊任务对焦。"
+        : theme === "人际"
+          ? "今天别把话憋到过期，先给关系留一个台阶。"
+          : "今天的好运感，可能藏在你少做一个冲动决定里。";
   const body = [
-    `${title}`,
-    "",
-    `如果今天你第一眼看到“${theme}很好”，先别急着把它理解成天上掉钱。更准确的说法是：今天适合把正在漏掉的东西收回来。`,
+    openingHook,
     "",
     `今天的关键词是：${keyword}。`,
     "",
-    `这不是确定性预测，更像是一张提醒卡：好运不一定来自突然降临的机会，更多时候来自你先把小漏洞补上。比如月底前那张一直没点开的信用卡账单、合租群里还没分清楚的水电费、一个忘记取消的订阅、一次“奖励自己”的小额下单。每一笔都不大，但它们会悄悄改变你对生活的掌控感。`,
+    `好运不一定来自突然降临的机会，更多时候来自你先把小漏洞补上。比如月底前那张一直没点开的信用卡账单、合租群里还没分清楚的水电费、一个忘记取消的订阅、一次“奖励自己”的小额下单。每一笔都不大，但它们会悄悄改变你对生活的掌控感。`,
     "",
     `综合来看，今天的能量像“${symbolicImage}”。你可能会想快一点看到结果，但更适合先慢下来，把信息、账单、日程或对话重新确认一遍。对海外中文年轻人来说，汇率、转账手续费、咖啡外卖、打车、朋友局 AA，这些最容易被忽略的小口子，反而是今天最值得照看的地方。`,
     "",
     `${theme}提醒：${practicalAdvice}`,
     "",
-    `今日行动：选一件最容易被忽略的小事，在今天结束前处理掉。它不会立刻改变命运，但会让你更稳地接住接下来的机会。`,
+    `今日行动：选一件最容易被忽略的小事，在今天结束前处理掉。它不会把人生一键改版，但会让你更稳地接住接下来的机会。`,
     "",
     `如果你愿意，把今天最想“补漏”的一件事留在评论里：账单、订阅、AA、还是冲动消费？下一条可以继续拆其中一个方向。`
   ].join("\n");
   const thread = [
-    { index: 1, role: "hook" as const, text: `今日${theme}运势：今天的关键词是「${keyword}」。别急着等一笔突然降临的好运，今天真正的好运感，可能来自你少漏掉一笔钱、一句话、一个承诺。` },
+    { index: 1, role: "hook" as const, text: `${openingHook}今天的关键词是「${keyword}」，真正的好运感，可能来自你少漏掉一笔钱、一句话、一个承诺。` },
     { index: 2, role: "emotional context" as const, text: `今天的画面感像「${symbolicImage}」：不是大开大合，而是把散掉的注意力收回来。你越想快点看到结果，越需要先确认脚下有没有小洞。` },
     { index: 3, role: "concrete scene" as const, text: `具体一点：查一眼信用卡账单、订阅扣费、转账手续费、朋友局 AA 或合租分账。它们单独看都不大，但很会偷走稳定感。` },
     { index: 4, role: "fortune interpretation" as const, text: `${theme}方面，别急着追一个看起来很亮的机会。今天更适合守住已经在你手里的东西，确认细节、成本和承诺。` },
