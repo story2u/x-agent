@@ -4,8 +4,9 @@ description: Generate daily fortune-themed X/Twitter long posts and threads from
 metadata:
   category: content
   domain: fortune
+  system: astrology
   language: zh-CN
-  version: "2.0"
+  version: "3.0"
 allowed-tools: finalize_twitter_creative
 ---
 
@@ -30,6 +31,37 @@ allowed-tools: finalize_twitter_creative
 - 如涉及金钱，只能给出行为层面的温和提醒，例如“避免冲动消费”“先确认信息再下决定”“复核账单和订阅”。
 - 如果用户要求“今天一定暴富”“稳赚”“必有贵人”，必须在安全审查中标记风险，并改写为娱乐/反思 framing。
 
+## Astrology Grounding（星座底料）
+
+本技能以西方占星为命理底料。运行时会为「今天 + 目标星座」计算确定性星象事实并注入每一段推理（实现见 `src/lib/fortune/astro-day.ts`）：
+
+- 目标星座：从用户输入解析（如「今日天秤座运势」→ 天秤座）；未指定时回退当日太阳星座或「通用」。
+- 当日星象事实（确定性，不可臆造）：星期主行星能量、月相及其行为含义、太阳季节背景、今日侧重域（事业/财运/感情/自我，按日期+星座确定性轮换）、情绪基调。
+- 星座画像：元素、模式、守护星、核心驱动、阴影张力。
+
+解读规则见 references：`astrology-signs.md`（十二星座底料）、`astrology-daily-engine.md`（月相/星期/侧重域 → 当日基调）。
+
+要点：今天写什么主轴由「今日侧重域」决定；每天、每个星座的星象事实都不同，内容必须随之不同，不要每天都收敛到同一个主题。星座与月相只是情绪与行为的隐喻，不是命运开关（遵守 Safety Positioning）。
+
+## Seth Consciousness Layer（意识解释内核）
+
+象征系统（星座、月相、五行、节气、塔罗）只是镜子。本技能以 Seth 式意识框架作为**意义解释内核**（写作透镜，不是预测引擎），必须读取 `references/seth-consciousness-framework.md`，把象征翻译成：
+
+- 注意力（今天适合放在哪里）
+- 信念（哪个正在影响体验）
+- 概率线 / 选择点（现在可以拨向哪边）
+- 情绪信号（情绪在提示什么，不是命令）
+- 当下力量点（改变从现在开始）
+- 一个小行动（给下一条分支留一个更稳的入口）
+
+要求：
+
+- 最终文案必须体现上述至少一项（注意力 / 信念 / 概率线 / 当下力量点 / 选择点 / 小行动）。
+- 把主动权还给读者，减少恐惧、增加能动性。
+- 涉及财运时强调注意力回收 / 概率选择 / 行动提醒，而不是发财承诺。
+- 禁止宿命化表达：命中注定、无法改变、一定会发生、必然失去、不照做就倒霉、在劫难逃。
+- 不逐字引用赛斯原文，不归因具体话语（不写「赛斯说今天…」），对外口径仍是娱乐 / 非确定性。
+
 ## When To Use
 
 Use this skill when the user asks for:
@@ -48,6 +80,8 @@ Use this skill when the user asks for:
 - Daily luck long tweet
 
 ## Workflow
+
+运行时把这套流程编排为 **5 段独立的模型推理**（understand → diverge → judge → draft → refine），而不是一次成稿；角度判分与改写由独立的「运营主编」段真实执行（实现见 `src/lib/fortune/pipeline.ts`）。下面的步骤描述每段应产出的内容与质量标准。
 
 Do not immediately write the final post. Produce the artifact through this sequence:
 
@@ -343,6 +377,7 @@ If both are requested, return both.
 - Is the advice specific and actionable?
 - Are money, health, love, and career claims non-deterministic?
 - Are forbidden absolute claims removed?
+- Does the content show Seth-style agency (注意力 / 信念 / 选择点 / 当下力量点 / 小行动 中至少一项) and avoid fatalism (命中注定 / 无法改变 / 一定会发生 / 必然失去 / 不照做就倒霉)?
 - Is `operatorCritique` present with all scores 4 or above after rewrite?
 - Is `engagementPlan` present and non-spammy?
 - For longTweet, is `final.longTweet.body` the primary full content?

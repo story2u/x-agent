@@ -7,6 +7,7 @@ import { stdin as input, stdout as output } from "node:process";
 import { generateTwitterCreative } from "../src/lib/pi-agent";
 import { listLocalSkills } from "../src/lib/skills/local-skills";
 import type { GenerateRequest, GenerateResponse, Tone } from "../src/lib/types";
+import type { FortuneFactor } from "../src/lib/fortune/types";
 
 // Load a local .env (if present) so PI_* / OPENAI_CODEX_* credentials reach the
 // runtime. process.loadEnvFile exists on Node >= 20.12 (package requires >= 22.19).
@@ -39,6 +40,8 @@ interface TuiState {
   audience: string;
   goal: string;
   constraints: string;
+  date: string;
+  timeZone: string;
   history: GenerateResponse[];
 }
 
@@ -69,6 +72,8 @@ const state: TuiState = {
   audience: process.env.X_AGENT_AUDIENCE || "AI engineers, independent builders, technical product owners",
   goal: process.env.X_AGENT_GOAL || "Create a publishable X/Twitter text artifact.",
   constraints: process.env.X_AGENT_CONSTRAINTS || "No unverifiable benchmarks. Do not overclaim.",
+  date: process.env.X_AGENT_DATE || "",
+  timeZone: process.env.X_AGENT_TIMEZONE || "",
   history: []
 };
 
@@ -133,6 +138,8 @@ async function runAgent(command: string) {
     constraints: state.constraints,
     outputType: state.outputType,
     runMode: "draft",
+    date: state.date || undefined,
+    timeZone: state.timeZone || undefined,
     skillIds: state.skill === "auto" ? undefined : [state.skill]
   };
 
@@ -185,6 +192,14 @@ async function handleCommand(raw: string) {
     case "constraints":
       setText("constraints", value);
       return false;
+    case "date":
+      state.date = value;
+      console.log(value ? `date = ${value}` : "date = (auto: today)");
+      return false;
+    case "timezone":
+      state.timeZone = value;
+      console.log(value ? `timezone = ${value}` : "timezone = (auto: system)");
+      return false;
     case "config":
       printConfig();
       return false;
@@ -193,6 +208,12 @@ async function handleCommand(raw: string) {
       return false;
     case "history":
       printHistory();
+      return false;
+    case "trace":
+      printTrace();
+      return false;
+    case "context":
+      printFortuneContext();
       return false;
     case "model":
       setModel(value);
@@ -281,11 +302,15 @@ Slash commands:
   /audience <text>
   /goal <text>
   /constraints <text>
+  /date <YYYY-MM-DD>            set run date (blank = today)
+  /timezone <IANA tz>          set timezone (blank = system)
   /config                       show request context
   /model                        show model credential hints
   /model <provider> [model]      switch provider for this TUI session
   /last                         show last artifact
   /history                      list generated artifacts in this session
+  /trace                        show last fortune pipeline stage trace
+  /context                      show last fortune context (4 layers + provenance)
   /clear                        clear screen
   /quit                         exit
 
@@ -312,6 +337,8 @@ function printConfig() {
   console.log(`audience    ${state.audience}`);
   console.log(`goal        ${state.goal}`);
   console.log(`constraints ${state.constraints}`);
+  console.log(`date        ${state.date || "(auto: today)"}`);
+  console.log(`timezone    ${state.timeZone || "(auto: system)"}`);
 }
 
 function printModel() {
@@ -463,6 +490,60 @@ function printHistory() {
     const skill = item.skillTrace?.skillSlug || "none";
     console.log(`${index + 1}. [${skill}] ${item.creative.tweet.replace(/\s+/g, " ").slice(0, 100)}`);
   });
+}
+
+function fmtFactor(factor: FortuneFactor<string | string[]>) {
+  const value = Array.isArray(factor.value) ? factor.value.join("、") : factor.value;
+  return `${factor.label}: ${value} ${ansi.dim}[${factor.sourceLevel}·${factor.confidence}]${ansi.reset}`;
+}
+
+function printTrace() {
+  const last = state.history[0];
+  if (!last) {
+    console.log("No artifact yet.");
+    return;
+  }
+  if (!last.fortuneTrace?.length) {
+    console.log("No fortune trace on the last artifact (non-fortune skill?).");
+    return;
+  }
+  console.log(`${ansi.bold}pipeline trace${ansi.reset}`);
+  for (const entry of last.fortuneTrace) {
+    console.log(`${ansi.bold}${entry.stage}${ansi.reset} — ${entry.summary}`);
+    if (entry.selectedReferences?.length) console.log(`  ${ansi.dim}refs:${ansi.reset} ${entry.selectedReferences.join(", ")}`);
+    if (entry.scores && Object.keys(entry.scores).length) console.log(`  ${ansi.dim}scores:${ansi.reset} ${Object.entries(entry.scores).map(([key, value]) => `${key}=${value}`).join(" ")}`);
+    if (entry.warnings?.length) console.log(`  ${ansi.yellow}warnings:${ansi.reset} ${entry.warnings.join("; ")}`);
+  }
+}
+
+function printFortuneContext() {
+  const last = state.history[0];
+  if (!last) {
+    console.log("No artifact yet.");
+    return;
+  }
+  const ctx = last.fortuneContext;
+  if (!ctx) {
+    console.log("No fortune context on the last artifact (non-fortune skill?).");
+    return;
+  }
+  console.log(`${ansi.bold}fortune context${ansi.reset} ${ansi.dim}${ctx.dateISO} ${ctx.timeZone}${ansi.reset}`);
+  console.log(`${ansi.bold}western${ansi.reset}`);
+  for (const factor of [ctx.western.weekdayPlanet, ctx.western.moonPhase, ctx.western.sunSeason, ctx.western.signProfile]) {
+    if (factor) console.log(`  ${fmtFactor(factor)}`);
+  }
+  console.log(`${ansi.bold}eastern${ansi.reset}`);
+  if (ctx.eastern) {
+    for (const factor of [ctx.eastern.zodiacYear, ctx.eastern.solarTerm, ctx.eastern.fiveElementHint, ctx.eastern.seasonalAdvice]) {
+      if (factor) console.log(`  ${fmtFactor(factor)}`);
+    }
+  } else {
+    console.log(`  ${ansi.dim}(Slice 3 未实现)${ansi.reset}`);
+  }
+  console.log(`${ansi.bold}seth${ansi.reset}`);
+  for (const factor of [ctx.seth.meaningLens, ctx.seth.agencyPrompt, ctx.seth.probabilityFrame]) console.log(`  ${fmtFactor(factor)}`);
+  console.log(`${ansi.bold}creative${ansi.reset}`);
+  for (const factor of [ctx.creative.focusDomain, ctx.creative.emotionalWeather, ctx.creative.keywordCandidates]) console.log(`  ${fmtFactor(factor)}`);
 }
 
 function promptLabel() {

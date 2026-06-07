@@ -116,8 +116,9 @@ skills/<slug>/SKILL.md
 - Local Markdown skill loading：`src/lib/skills/local-skills.ts`
 - Text agent runtime：`src/lib/pi-agent.ts`
 - Default `twitter-launch-creative` skill
-- Default `daily-fortune-tweet` skill with loaded references, operator scoring, rewrite loop guidance, and engagement planning
-- Daily Fortune skill eval specs：`skills/daily-fortune-tweet/evals/*.json`
+- Default `daily-fortune-tweet` skill: astrology-grounded 5-stage reasoning pipeline (understand → diverge → judge → draft → refine) over a deterministic daily astrology engine
+- Fortune pipeline & astrology engine: `src/lib/fortune/pipeline.ts`, `src/lib/fortune/astro-day.ts`; shared model layer `src/lib/pi-model.ts`
+- Daily Fortune eval specs (`skills/daily-fortune-tweet/evals/*.json`) + real model-in-loop eval (`npm run eval:fortune`)
 - ChatGPT Plus/Pro OAuth credential refresh through pi-ai
 - DeepSeek API provider through OpenAI-compatible Chat Completions
 - Web root page only shows CLI launch instructions
@@ -151,6 +152,7 @@ npm run lint
 npm test
 npm run eval:skills
 npm run eval:skill -- daily-fortune-tweet
+npm run eval:fortune          # 真跑 fortune pipeline + 规则 + LLM-judge（需模型凭据）
 ```
 
 ## Legacy Code

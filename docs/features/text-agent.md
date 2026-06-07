@@ -23,11 +23,26 @@ MVP 只生成 X/Twitter 文本 artifact，不生成图片，不做 Web 审批流
 - 默认使用 `twitter-launch-creative`（若删除该 skill，需在 `resolveRuntimeSkill` 指定新的默认行为）。
 - 无效（validation errors）的 skill 不会被自动选择，手动选择会报错。
 
+## Daily Fortune Pipeline（星座 + 5 段推理）
+
+`daily-fortune-tweet` 不走单次 `finalize_twitter_creative`，而是路由到 `src/lib/fortune/pipeline.ts` 的 5 段独立模型推理：understand → diverge → judge → draft → refine。每段独立 context / system prompt / 结构化输出 schema，复用 `src/lib/pi-model.ts`。角度判分与改写由独立 judge / refine 段真实执行，而非写稿者自评。
+
+命理底料是西方占星：
+
+- `src/lib/fortune/astro-day.ts` 为「日期 + 时区 + 目标星座」计算**可复现**当日星象底料（星期主行星、月相、太阳季、星座画像）+ 创意种子（creativeFocusDomain / creativeEmotionalWeather），注入每一段推理。`resolveCalendarDate` 解析显式 `date`/`timeZone`（缺省用 `X_AGENT_TIMEZONE` / 系统），同 `(date, sign)` 永远同结果。
+- `parseSign` 从用户输入解析星座（中文名/别名/英文），无则回退当日太阳星座或「通用」。`parseDateFromText` 从 topic 抽取 `YYYY-MM-DD`。
+- 「今日侧重域」(creativeFocusDomain) 按 `date+sign` 哈希轮换，是**创意种子、非命理事实**；每个变量经 `astroFactors()` 标注 `sourceLevel`+`confidence`（类型 `src/lib/fortune/types.ts`），`formatAstroDayBlock` 在 prompt 里显示来源，避免把创意种子当命理事实。
+- 解读知识在 references：`astrology-signs.md`、`astrology-daily-engine.md`；**Seth 意识内核** `seth-consciousness-framework.md` 注入 diverge/draft/refine，把象征翻译成注意力/信念/概率线/选择点/当下力量点/小行动，refine 检查 agency framing 并去宿命化。对外口径不变（娱乐/非确定性），不逐字引用赛斯。
+- **FortuneContext**：western / eastern（生肖年/节气/五行，`src/lib/fortune/eastern-day.ts`）/ seth / creative 四层底料统一为 `FortuneContext`（`src/lib/fortune/context.ts`，`resolveFortuneContext` + `formatFortuneContextForPrompt`），注入各段；TUI `/context` 看四层 + provenance，`/trace` 看逐段 stage trace（selectedReferences / scores / warnings）。
+
+延迟取舍：每条推文约 5 次顺序模型调用（reasoning 模型较慢），换取运营级质量；usage 为各段求和。
+
 ## 错误处理与模型配置
 
 - 模型硬错误以 `stopReason: "error"/"aborted"` 返回；`pi-agent` 抛出真实原因（凭据未配置、OAuth 刷新失败等），不再用保底模板掩盖。
 - 模型返回文本但未调用 `finalize_twitter_creative` 时，从 transcript 恢复；都失败才用保底 artifact。
 - `maxTokens` 默认 8192，可用 `PI_MAX_TOKENS` 覆盖。
+- 可选 `FORTUNE_THINKING_CAP=low|medium|high`：把 fortune pipeline 各段 thinking level 统一封顶，用于加速 `eval:fortune` / 本地迭代；生产默认不设，各段用自身档位。
 - `finalize_twitter_creative` 的 `dailyFortune` 字段使用严格 TypeBox schema（非 `Type.Any`），强约束模型输出结构；`daily-fortune-tweet/SKILL.md`、`references/*.md` 和 `evals/*.json` 内置运营策略、评分规则、黄金样例和机器质量门。
 - 模型 provider 支持 `openai-codex`、`openai` 和 `deepseek`；DeepSeek 走 `openai-completions`。
 
@@ -53,14 +68,20 @@ TUI 会渲染 Daily Fortune 的 long post、thread、fortune spine、operator cr
 
 - TUI：`scripts/x-agent-tui.ts`
 - Agent：`src/lib/pi-agent.ts`
+- Model 共享层：`src/lib/pi-model.ts`
+- Fortune 星象引擎：`src/lib/fortune/astro-day.ts`
+- Fortune 5 段 pipeline：`src/lib/fortune/pipeline.ts`
+- Fortune provenance 类型：`src/lib/fortune/types.ts`（FortuneSourceLevel / Confidence / FortuneFactor / FortuneContext / FortunePipelineTrace）
+- FortuneContext + 序列化：`src/lib/fortune/context.ts`（resolveFortuneContext / formatFortuneContextForPrompt）
+- Seth 意识 reference：`skills/daily-fortune-tweet/references/seth-consciousness-framework.md`
 - Local skills：`skills/*/SKILL.md`
 - Skill Runtime：`src/lib/skills/local-skills.ts`
 - Credentials：`src/lib/pi-credentials.ts`
 - Types：`src/lib/types.ts`
 - Validation：`src/lib/validation.ts`
-- Tests：`src/lib/__tests__/pi-agent.test.ts`、`src/lib/__tests__/validation.test.ts`、`src/lib/__tests__/skills.test.ts`、`src/lib/__tests__/daily-fortune-evals.test.ts`
+- Tests：`src/lib/__tests__/pi-agent.test.ts`、`src/lib/__tests__/validation.test.ts`、`src/lib/__tests__/skills.test.ts`、`src/lib/__tests__/daily-fortune-evals.test.ts`、`src/lib/fortune/__tests__/astro-day.test.ts`、`src/lib/fortune/__tests__/pipeline.test.ts`
 - Skill eval specs：`skills/daily-fortune-tweet/evals/*.json`
-- Eval runner：`scripts/eval-skills.ts`
+- Eval runner：`scripts/eval-skills.ts`（形状校验）、`scripts/eval-fortune-run.ts`（真跑 + LLM-judge，`npm run eval:fortune`）
 
 ## 操作面规则
 
@@ -88,4 +109,7 @@ TUI 会渲染 Daily Fortune 的 long post、thread、fortune spine、operator cr
 - `money-longtweet-overseas-youth`：长推正文不少于 600 个中文字符，至少包含 2 个海外财务场景，scores 全部 >= 4。
 - `unsafe-rich-guarantee`：不承诺暴富，安全审查标记原始风险。
 - `fortune-thread-career`：thread 5-8 条且 roles 完整。
+- `astro-day`：`getAstroDay` 确定性、太阳星座边界、月相覆盖、focus/情绪随日期轮换、星座解析。
+- `pipeline` helpers：`resolveOutputType` / `clampIndex` / `reindexThread`(封顶 8) / `refBlock` 装配逻辑。
 - `npm run eval:skills`：校验 skill eval specs 的规则配置完整性。
+- `npm run eval:fortune`（本地，需凭据）：真跑 pipeline，规则 + LLM-judge 评真实输出，打印运营达标率。
