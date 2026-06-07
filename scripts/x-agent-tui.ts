@@ -39,6 +39,8 @@ interface TuiState {
   audience: string;
   goal: string;
   constraints: string;
+  date: string;
+  timeZone: string;
   history: GenerateResponse[];
 }
 
@@ -69,6 +71,8 @@ const state: TuiState = {
   audience: process.env.X_AGENT_AUDIENCE || "AI engineers, independent builders, technical product owners",
   goal: process.env.X_AGENT_GOAL || "Create a publishable X/Twitter text artifact.",
   constraints: process.env.X_AGENT_CONSTRAINTS || "No unverifiable benchmarks. Do not overclaim.",
+  date: process.env.X_AGENT_DATE || "",
+  timeZone: process.env.X_AGENT_TIMEZONE || "",
   history: []
 };
 
@@ -133,6 +137,8 @@ async function runAgent(command: string) {
     constraints: state.constraints,
     outputType: state.outputType,
     runMode: "draft",
+    date: state.date || undefined,
+    timeZone: state.timeZone || undefined,
     skillIds: state.skill === "auto" ? undefined : [state.skill]
   };
 
@@ -184,6 +190,14 @@ async function handleCommand(raw: string) {
       return false;
     case "constraints":
       setText("constraints", value);
+      return false;
+    case "date":
+      state.date = value;
+      console.log(value ? `date = ${value}` : "date = (auto: today)");
+      return false;
+    case "timezone":
+      state.timeZone = value;
+      console.log(value ? `timezone = ${value}` : "timezone = (auto: system)");
       return false;
     case "config":
       printConfig();
@@ -281,6 +295,8 @@ Slash commands:
   /audience <text>
   /goal <text>
   /constraints <text>
+  /date <YYYY-MM-DD>            set run date (blank = today)
+  /timezone <IANA tz>          set timezone (blank = system)
   /config                       show request context
   /model                        show model credential hints
   /model <provider> [model]      switch provider for this TUI session
@@ -312,6 +328,8 @@ function printConfig() {
   console.log(`audience    ${state.audience}`);
   console.log(`goal        ${state.goal}`);
   console.log(`constraints ${state.constraints}`);
+  console.log(`date        ${state.date || "(auto: today)"}`);
+  console.log(`timezone    ${state.timeZone || "(auto: system)"}`);
 }
 
 function printModel() {

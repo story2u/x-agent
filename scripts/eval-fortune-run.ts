@@ -114,6 +114,15 @@ function checkRules(spec: FortuneEvalSpec, fortune: DailyFortuneArtifact): RuleR
     rules.push({ name: "threadLength", ok: n >= 5 && n <= 8, detail: `${n} items` });
   }
 
+  // Seth agency framing must be present; fatalistic language must be absent.
+  const agencyMarkers = ["注意力", "选择点", "概率", "当下", "信念", "小动作", "小行动", "主动权", "收回"];
+  const agencyHits = agencyMarkers.filter((marker) => content.includes(marker));
+  rules.push({ name: "agencyFraming", ok: agencyHits.length >= 1, detail: agencyHits.length ? agencyHits.slice(0, 3).join("/") : "none" });
+
+  const fatalism = ["命中注定", "无法改变", "必然失去", "不照做", "在劫难逃", "一定会发生"];
+  const fatalHits = fatalism.filter((phrase) => content.includes(phrase));
+  rules.push({ name: "noFatalism", ok: fatalHits.length === 0, detail: fatalHits.length ? `FOUND: ${fatalHits.join(", ")}` : "none" });
+
   return rules;
 }
 

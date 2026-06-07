@@ -43,6 +43,25 @@ allowed-tools: finalize_twitter_creative
 
 要点：今天写什么主轴由「今日侧重域」决定；每天、每个星座的星象事实都不同，内容必须随之不同，不要每天都收敛到同一个主题。星座与月相只是情绪与行为的隐喻，不是命运开关（遵守 Safety Positioning）。
 
+## Seth Consciousness Layer（意识解释内核）
+
+象征系统（星座、月相、五行、节气、塔罗）只是镜子。本技能以 Seth 式意识框架作为**意义解释内核**（写作透镜，不是预测引擎），必须读取 `references/seth-consciousness-framework.md`，把象征翻译成：
+
+- 注意力（今天适合放在哪里）
+- 信念（哪个正在影响体验）
+- 概率线 / 选择点（现在可以拨向哪边）
+- 情绪信号（情绪在提示什么，不是命令）
+- 当下力量点（改变从现在开始）
+- 一个小行动（给下一条分支留一个更稳的入口）
+
+要求：
+
+- 最终文案必须体现上述至少一项（注意力 / 信念 / 概率线 / 当下力量点 / 选择点 / 小行动）。
+- 把主动权还给读者，减少恐惧、增加能动性。
+- 涉及财运时强调注意力回收 / 概率选择 / 行动提醒，而不是发财承诺。
+- 禁止宿命化表达：命中注定、无法改变、一定会发生、必然失去、不照做就倒霉、在劫难逃。
+- 不逐字引用赛斯原文，不归因具体话语（不写「赛斯说今天…」），对外口径仍是娱乐 / 非确定性。
+
 ## When To Use
 
 Use this skill when the user asks for:
@@ -358,6 +377,7 @@ If both are requested, return both.
 - Is the advice specific and actionable?
 - Are money, health, love, and career claims non-deterministic?
 - Are forbidden absolute claims removed?
+- Does the content show Seth-style agency (注意力 / 信念 / 选择点 / 当下力量点 / 小行动 中至少一项) and avoid fatalism (命中注定 / 无法改变 / 一定会发生 / 必然失去 / 不照做就倒霉)?
 - Is `operatorCritique` present with all scores 4 or above after rewrite?
 - Is `engagementPlan` present and non-spammy?
 - For longTweet, is `final.longTweet.body` the primary full content?

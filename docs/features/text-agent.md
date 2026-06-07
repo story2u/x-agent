@@ -29,10 +29,10 @@ MVP 只生成 X/Twitter 文本 artifact，不生成图片，不做 Web 审批流
 
 命理底料是西方占星：
 
-- `src/lib/fortune/astro-day.ts` 为「今天 + 目标星座」计算**确定性**当日星象事实（星期主行星、月相、太阳季、星座画像、今日侧重域、情绪基调），注入每一段推理。
-- `parseSign` 从用户输入解析星座（中文名/别名/英文），无则回退当日太阳星座或「通用」。
-- 「今日侧重域」按 `date+sign` 确定性轮换（事业/财运/感情/自我），保证每天、每座内容不同 —— 解决旧版"每天都收敛到同一主题"的同质化。
-- 解读知识在 references：`astrology-signs.md`、`astrology-daily-engine.md`。
+- `src/lib/fortune/astro-day.ts` 为「日期 + 时区 + 目标星座」计算**可复现**当日星象底料（星期主行星、月相、太阳季、星座画像）+ 创意种子（creativeFocusDomain / creativeEmotionalWeather），注入每一段推理。`resolveCalendarDate` 解析显式 `date`/`timeZone`（缺省用 `X_AGENT_TIMEZONE` / 系统），同 `(date, sign)` 永远同结果。
+- `parseSign` 从用户输入解析星座（中文名/别名/英文），无则回退当日太阳星座或「通用」。`parseDateFromText` 从 topic 抽取 `YYYY-MM-DD`。
+- 「今日侧重域」(creativeFocusDomain) 按 `date+sign` 哈希轮换，是**创意种子、非命理事实**；每个变量经 `astroFactors()` 标注 `sourceLevel`+`confidence`（类型 `src/lib/fortune/types.ts`），`formatAstroDayBlock` 在 prompt 里显示来源，避免把创意种子当命理事实。
+- 解读知识在 references：`astrology-signs.md`、`astrology-daily-engine.md`；**Seth 意识内核** `seth-consciousness-framework.md` 注入 diverge/draft/refine，把象征翻译成注意力/信念/概率线/选择点/当下力量点/小行动，refine 检查 agency framing 并去宿命化。对外口径不变（娱乐/非确定性），不逐字引用赛斯。
 
 延迟取舍：每条推文约 5 次顺序模型调用（reasoning 模型较慢），换取运营级质量；usage 为各段求和。
 
@@ -70,6 +70,8 @@ TUI 会渲染 Daily Fortune 的 long post、thread、fortune spine、operator cr
 - Model 共享层：`src/lib/pi-model.ts`
 - Fortune 星象引擎：`src/lib/fortune/astro-day.ts`
 - Fortune 5 段 pipeline：`src/lib/fortune/pipeline.ts`
+- Fortune provenance 类型：`src/lib/fortune/types.ts`（FortuneSourceLevel / Confidence / FortuneFactor）
+- Seth 意识 reference：`skills/daily-fortune-tweet/references/seth-consciousness-framework.md`
 - Local skills：`skills/*/SKILL.md`
 - Skill Runtime：`src/lib/skills/local-skills.ts`
 - Credentials：`src/lib/pi-credentials.ts`

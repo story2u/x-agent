@@ -1,12 +1,14 @@
 // Deterministic daily astrology engine for the daily-fortune-tweet skill.
 //
-// Why this exists: the previous runtime passed only topic/audience/tone to the
-// model, so every "今日运势" had no real per-day variable and collapsed to the
-// same theme. This module turns a (date, sign) pair into concrete, deterministic
-// facts — weekday energy, moon phase, solar season, sign profile, and a rotated
-// daily focus — that get injected into the generation prompt. Same (date, sign)
-// always yields the same AstroDay; different days differ. No network, no
-// randomness, so it is fully unit-testable.
+// Turns a (date, timezone, sign) triple into concrete, reproducible symbolic
+// 底料 — weekday planet, moon phase, solar season, sign profile — plus clearly
+// labeled CREATIVE seeds (focus domain, emotional weather) that are rotations,
+// not astrology facts. Same (date, sign) always yields the same AstroDay. No
+// network, no randomness (the only "now" read is isolated in resolveCalendarDate),
+// so it is fully unit-testable. Provenance for every factor is exposed via
+// astroFactors() so the model and trace never mistake a creative seed for a fact.
+
+import type { FortuneFactor } from "@/lib/fortune/types";
 
 export type ZodiacSign =
   | "白羊座"
@@ -40,6 +42,7 @@ export interface SignProfile {
 
 export interface AstroDay {
   dateISO: string;
+  timeZone: string;
   weekday: string;
   weekdayPlanet: string;
   weekdayEnergy: string;
@@ -48,15 +51,16 @@ export interface AstroDay {
   sunSeason: ZodiacSign;
   sign: ZodiacSign | "通用";
   signProfile: SignProfile | null;
-  focusDomain: FocusDomain;
-  emotionalWeather: string;
+  /** Creative seed (hash rotation), NOT an astrology fact. */
+  creativeFocusDomain: FocusDomain;
+  /** Creative seed (hash rotation), NOT an astrology fact. */
+  creativeEmotionalWeather: string;
   dailySeed: number;
 }
 
 const WEEKDAYS = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"] as const;
 
-// Traditional planetary rulers of the weekday — gives each day a real,
-// repeating-but-varied tonal anchor the model can interpret.
+// Traditional planetary rulers of the weekday — a fixed symbolic mapping.
 const WEEKDAY_PLANETS: Array<{ planet: string; energy: string }> = [
   { planet: "太阳", energy: "自我与休整，把注意力收回到自己身上" }, // Sunday
   { planet: "月亮", energy: "情绪与节奏，照顾内在状态" }, // Monday
@@ -127,6 +131,9 @@ const SIGN_ALIASES: Array<{ patterns: string[]; sign: ZodiacSign }> = [
   { patterns: ["双鱼", "雙魚", "pisces"], sign: "双鱼座" }
 ];
 
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DATE_IN_TEXT = /(\d{4})[-/](\d{1,2})[-/](\d{1,2})/;
+
 /** Parse a zodiac sign out of free text (Chinese names, common aliases, English). */
 export function parseSign(text: string | undefined): ZodiacSign | undefined {
   if (!text) return undefined;
@@ -137,17 +144,60 @@ export function parseSign(text: string | undefined): ZodiacSign | undefined {
   return undefined;
 }
 
-/** Solar (sun) sign for a given date — the seasonal backdrop everyone shares. */
+/** Extract a YYYY-MM-DD (or YYYY/M/D) date mentioned in free text. "今天/明天" is not handled here. */
+export function parseDateFromText(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  const match = text.match(DATE_IN_TEXT);
+  if (!match) return undefined;
+  const [, year, rawMonth, rawDay] = match;
+  const month = Number(rawMonth);
+  const day = Number(rawDay);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function systemTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+function todayISOInZone(timeZone: string): string {
+  const format = (tz: string) => new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  try {
+    return format(timeZone);
+  } catch {
+    return format("UTC");
+  }
+}
+
+/**
+ * Resolve the calendar date + timezone for a fortune run, reproducibly.
+ * Explicit `date` (YYYY-MM-DD) wins; otherwise "today" in the resolved timezone.
+ * The only place that reads the wall clock (`new Date()`), kept isolated for tests.
+ */
+export function resolveCalendarDate(opts: { date?: string; timeZone?: string } = {}): { dateISO: string; timeZone: string } {
+  const timeZone = opts.timeZone?.trim() || process.env.X_AGENT_TIMEZONE?.trim() || systemTimeZone();
+  const explicit = opts.date?.trim();
+  if (explicit && ISO_DATE.test(explicit)) return { dateISO: explicit, timeZone };
+  return { dateISO: todayISOInZone(timeZone), timeZone };
+}
+
+/** A calendar date anchored at UTC noon, so weekday/month/day reads are TZ-stable. */
+function isoToUtcNoon(dateISO: string): Date {
+  return new Date(`${dateISO}T12:00:00Z`);
+}
+
+/** Solar (sun) sign for a UTC-anchored date — the seasonal backdrop everyone shares. */
 export function sunSignForDate(date: Date): ZodiacSign {
-  const month = date.getMonth() + 1;
-  const day = date.getDate();
-  // Walk ranges; a date before the first cutoff (Jan 1–19) belongs to 摩羯座.
-  let current: ZodiacSign = "摩羯座";
+  const month = date.getUTCMonth() + 1;
+  const day = date.getUTCDate();
+  let current: ZodiacSign = "摩羯座"; // Jan 1–19 belongs to 摩羯座
   for (const { from, sign } of SUN_SIGN_RANGES) {
     const [fromMonth, fromDay] = from;
-    if (month > fromMonth || (month === fromMonth && day >= fromDay)) {
-      current = sign;
-    }
+    if (month > fromMonth || (month === fromMonth && day >= fromDay)) current = sign;
   }
   return current;
 }
@@ -167,15 +217,14 @@ const MOON_PHASES: Array<{ phase: MoonPhase; meaning: string }> = [
   { phase: "残月", meaning: "适合收尾、休息，为下一轮腾出空间" }
 ];
 
-/** Moon phase for a date, derived from the synodic cycle (deterministic). */
+/** Moon phase for a date, derived from the synodic cycle (approximate, deterministic). */
 export function moonPhaseForDate(date: Date): { phase: MoonPhase; meaning: string } {
   const ageDays = (((date.getTime() - NEW_MOON_EPOCH_MS) / 86_400_000) % SYNODIC_MONTH + SYNODIC_MONTH) % SYNODIC_MONTH;
-  // 8 equal-ish bins across the cycle.
   const index = Math.floor((ageDays / SYNODIC_MONTH) * 8) % 8;
   return MOON_PHASES[index];
 }
 
-/** Stable non-negative string hash (djb2) — used to rotate focus deterministically. */
+/** Stable non-negative string hash (djb2) — used to rotate creative seeds deterministically. */
 function hashString(value: string): number {
   let hash = 5381;
   for (let i = 0; i < value.length; i++) {
@@ -184,36 +233,30 @@ function hashString(value: string): number {
   return hash >>> 0;
 }
 
-function toISODate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 /**
- * Build the deterministic daily astrology context.
- * @param date the day to read (local time).
+ * Build the deterministic daily astrology context for an explicit ISO date.
+ * @param dateISO YYYY-MM-DD (use resolveCalendarDate to derive "today in a timezone").
  * @param sign target sign; omit/undefined → "通用" (uses the day's sun season for color).
+ * @param timeZone label stored on the result for trace/reproducibility (default "UTC").
  */
-export function getAstroDay(date: Date, sign?: ZodiacSign | "通用"): AstroDay {
-  const dateISO = toISODate(date);
-  const weekdayIndex = date.getDay();
+export function getAstroDay(dateISO: string, sign?: ZodiacSign | "通用", timeZone = "UTC"): AstroDay {
+  const utc = isoToUtcNoon(dateISO);
+  const weekdayIndex = utc.getUTCDay();
   const { planet, energy } = WEEKDAY_PLANETS[weekdayIndex];
-  const { phase, meaning } = moonPhaseForDate(date);
-  const sunSeason = sunSignForDate(date);
+  const { phase, meaning } = moonPhaseForDate(utc);
+  const sunSeason = sunSignForDate(utc);
   const resolvedSign: ZodiacSign | "通用" = sign && sign !== "通用" ? sign : "通用";
   const signProfile = resolvedSign === "通用" ? null : SIGN_PROFILES[resolvedSign];
 
-  // Rotate the day's emphasis deterministically by (date, sign) so the same sign
-  // gets a different focus on different days, and different signs differ on the
-  // same day — this is what breaks the old "every fortune = 补漏" homogeneity.
+  // Rotate the day's emphasis deterministically by (date, sign). These are CREATIVE
+  // seeds for content variety, explicitly NOT astrology facts (see astroFactors).
   const dailySeed = hashString(`${dateISO}|${resolvedSign}`);
-  const focusDomain = FOCUS_DOMAINS[dailySeed % FOCUS_DOMAINS.length];
-  const emotionalWeather = EMOTIONAL_WEATHERS[dailySeed % EMOTIONAL_WEATHERS.length];
+  const creativeFocusDomain = FOCUS_DOMAINS[dailySeed % FOCUS_DOMAINS.length];
+  const creativeEmotionalWeather = EMOTIONAL_WEATHERS[dailySeed % EMOTIONAL_WEATHERS.length];
 
   return {
     dateISO,
+    timeZone,
     weekday: WEEKDAYS[weekdayIndex],
     weekdayPlanet: planet,
     weekdayEnergy: energy,
@@ -222,33 +265,46 @@ export function getAstroDay(date: Date, sign?: ZodiacSign | "通用"): AstroDay 
     sunSeason,
     sign: resolvedSign,
     signProfile,
-    focusDomain,
-    emotionalWeather,
+    creativeFocusDomain,
+    creativeEmotionalWeather,
     dailySeed
   };
 }
 
-/** Render an AstroDay as a compact prompt block of deterministic facts. */
-export function formatAstroDayBlock(astro: AstroDay): string {
-  const lines = [
-    `日期: ${astro.dateISO}（${astro.weekday}）`,
-    `当日主行星(星期): ${astro.weekdayPlanet} — ${astro.weekdayEnergy}`,
-    `月相: ${astro.moonPhase} — ${astro.moonPhaseMeaning}`,
-    `太阳季节背景: ${astro.sunSeason}`,
-    `目标星座: ${astro.sign}`,
-    `今日侧重域(确定性轮换): ${astro.focusDomain}`,
-    `情绪基调(确定性): ${astro.emotionalWeather}`
+/** Provenance-tagged view of the day's factors — facts vs creative seeds are explicit. */
+export function astroFactors(astro: AstroDay): FortuneFactor[] {
+  const factors: FortuneFactor[] = [
+    { key: "weekdayPlanet", label: "当日主行星(星期)", value: `${astro.weekdayPlanet} — ${astro.weekdayEnergy}`, sourceLevel: "traditional-symbolic", confidence: "high" },
+    { key: "moonPhase", label: "月相", value: `${astro.moonPhase} — ${astro.moonPhaseMeaning}`, sourceLevel: "approximate-astronomical", confidence: "medium", note: "由朔望周期近似推导，可能差一天" },
+    { key: "sunSeason", label: "太阳季节背景", value: astro.sunSeason, sourceLevel: "deterministic-calendar", confidence: "high" },
+    { key: "creativeFocusDomain", label: "今日侧重域", value: astro.creativeFocusDomain, sourceLevel: "creative-rotation", confidence: "creative", note: "日期+星座哈希轮换得到的创意种子，非命理事实" },
+    { key: "creativeEmotionalWeather", label: "情绪基调", value: astro.creativeEmotionalWeather, sourceLevel: "creative-rotation", confidence: "creative", note: "创意种子，非命理事实" }
   ];
   if (astro.signProfile) {
-    const profile = astro.signProfile;
-    lines.push(
-      `星座画像: ${profile.sign}（${profile.english}）｜元素 ${profile.element}｜模式 ${profile.modality}｜守护星 ${profile.rulingPlanet}`,
-      `星座关键词: ${profile.keywords.join("、")}`,
-      `核心驱动: ${profile.coreDrive}`,
-      `阴影/张力: ${profile.shadow}`
-    );
+    factors.push({
+      key: "signProfile",
+      label: "星座画像",
+      value: `${astro.signProfile.sign}（${astro.signProfile.english}）｜元素 ${astro.signProfile.element}｜模式 ${astro.signProfile.modality}｜守护星 ${astro.signProfile.rulingPlanet}`,
+      sourceLevel: "traditional-symbolic",
+      confidence: "medium"
+    });
   }
-  return lines.join("\n");
+  return factors;
+}
+
+/** Render an AstroDay as a prompt block where every factor shows its provenance. */
+export function formatAstroDayBlock(astro: AstroDay): string {
+  const head = [
+    `日期: ${astro.dateISO}（${astro.weekday}，时区 ${astro.timeZone}）`,
+    `目标星座: ${astro.sign}`
+  ];
+  const factorLines = astroFactors(astro).map(
+    (factor) => `${factor.label}: ${factor.value} [${factor.sourceLevel}·${factor.confidence}]${factor.note ? `（${factor.note}）` : ""}`
+  );
+  const profileLines = astro.signProfile
+    ? [`星座关键词: ${astro.signProfile.keywords.join("、")}`, `核心驱动: ${astro.signProfile.coreDrive}`, `阴影/张力: ${astro.signProfile.shadow}`]
+    : [];
+  return [...head, ...factorLines, ...profileLines].join("\n");
 }
 
 export { SIGN_PROFILES };

@@ -8,6 +8,8 @@ export interface GenerateRequest {
   constraints?: string;
   outputType?: "tweet" | "thread" | "review" | "longTweet" | "both";
   runMode?: "draft" | "reviewed" | "publish-ready";
+  date?: string;
+  timeZone?: string;
   skillIds?: string[];
   referenceIds?: string[];
   knowledgeSourceIds?: string[];

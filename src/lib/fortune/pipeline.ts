@@ -18,7 +18,7 @@ import { Agent, type AgentTool } from "@earendil-works/pi-agent-core";
 import { Type, type Static, type TSchema } from "typebox";
 import type { StopReason } from "@earendil-works/pi-ai";
 import { getModelApiKey, resolveModel, streamForModel, type RuntimeModel } from "@/lib/pi-model";
-import { formatAstroDayBlock, getAstroDay, parseSign, type AstroDay } from "@/lib/fortune/astro-day";
+import { formatAstroDayBlock, getAstroDay, parseDateFromText, parseSign, resolveCalendarDate, type AstroDay } from "@/lib/fortune/astro-day";
 import { getSkillVersionReferences } from "@/lib/skills/local-skills";
 import { logError } from "@/lib/logger";
 import type { DailyFortuneArtifact, DailyFortuneThreadItem, GenerateRequest, GenerateResponse, RunSkillTrace } from "@/lib/types";
@@ -314,7 +314,8 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
   const model = resolveModel();
   const outputType = resolveOutputType(input);
   const sign = parseSign(input.topic) ?? parseSign(input.audience);
-  const astro = getAstroDay(new Date(), sign);
+  const { dateISO, timeZone } = resolveCalendarDate({ date: input.date ?? parseDateFromText(input.topic), timeZone: input.timeZone });
+  const astro = getAstroDay(dateISO, sign, timeZone);
   const astroBlock = formatAstroDayBlock(astro);
 
   const allRefs = (await getSkillVersionReferences(skillTrace.skillVersionId)).map((ref) => ({
@@ -355,8 +356,8 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
   // Stage 2 — diverge
   const diverge = await runStage(
     "diverge",
-    "你是发散创意脑暴。基于 brief 和当日星象，产出 3-5 个角度选项和 5 个 hook（五种类型 contrarian/scene/confession/mystical-image/practical-warning 各一个）。要具体、有反差、贴合星座画像与受众场景、安全。围绕 brief.focusDomain 这个主轴展开，不要写最终正文。",
-    `创作 brief：\n${JSON.stringify(brief, null, 2)}\n\n当日星象事实：\n${astroBlock}\n\n参考资料：\n${refBlock(allRefs, ["astrology-signs.md", "astrology-daily-engine.md", "fortune-symbol-bank.md", "hook-patterns.md"])}`,
+    "你是发散创意脑暴。基于 brief 和当日星象，产出 3-5 个角度选项和 5 个 hook（五种类型 contrarian/scene/confession/mystical-image/practical-warning 各一个）。要具体、有反差、贴合星座画像与受众场景、安全。围绕 brief.focusDomain 这个主轴展开。每个角度都应能被 Seth 意识框架解释（注意力/信念/选择点/小行动），避免宿命与恐惧。不要写最终正文。",
+    `创作 brief：\n${JSON.stringify(brief, null, 2)}\n\n当日星象事实：\n${astroBlock}\n\n参考资料：\n${refBlock(allRefs, ["astrology-signs.md", "astrology-daily-engine.md", "seth-consciousness-framework.md", "fortune-symbol-bank.md", "hook-patterns.md"])}`,
     divergeSchema,
     "high",
     model
@@ -390,8 +391,8 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
       : "只写长推正文，必须不少于 600 个中文字（目标 600-1200），宁长勿短。draftThread 留空数组。";
   const draft = await runStage(
     "draft",
-    `你是账号主笔，人设温柔但清醒、懂海外生活成本。基于选定角度、选定 hook、当日星象和星座画像写初稿。要有画面感、短句、适合手机阅读，至少包含两个受众真实场景，把月相/星期能量自然融入。${lengthRule}`,
-    `创作 brief：\n${JSON.stringify(brief, null, 2)}\n\n选定角度：${selectedAngle.angle}（${selectedAngle.thesis}）\n选定 hook：\n${selectedHooks.map((hook) => `- (${hook.type}) ${hook.text}`).join("\n")}\n\n当日星象事实：\n${astroBlock}\n\n参考资料：\n${refBlock(allRefs, ["astrology-signs.md", "astrology-daily-engine.md", "x-long-tweet-patterns.md", "x-thread-patterns.md", "golden-examples.md"])}`,
+    `你是账号主笔，人设温柔但清醒、懂海外生活成本。基于选定角度、选定 hook、当日星象和星座画像写初稿。要有画面感、短句、适合手机阅读，至少包含两个受众真实场景，把月相/星期能量自然融入。按 Seth 意识框架，把象征翻译成注意力/信念/选择点/当下力量点/小行动，至少体现其一；不做确定性预测、不制造恐惧，把主动权还给读者。${lengthRule}`,
+    `创作 brief：\n${JSON.stringify(brief, null, 2)}\n\n选定角度：${selectedAngle.angle}（${selectedAngle.thesis}）\n选定 hook：\n${selectedHooks.map((hook) => `- (${hook.type}) ${hook.text}`).join("\n")}\n\n当日星象事实：\n${astroBlock}\n\n参考资料：\n${refBlock(allRefs, ["astrology-signs.md", "astrology-daily-engine.md", "seth-consciousness-framework.md", "x-long-tweet-patterns.md", "x-thread-patterns.md", "golden-examples.md"])}`,
     draftSchema,
     "medium",
     model
@@ -401,8 +402,8 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
   // Stage 5 — refine + safety
   const refine = await runStage(
     "refine",
-    "你是终审运营编辑兼安全审查官。先按 operator rubric 七维真打分（1-5）。任何一维低于 4 必须改写到 4 分以上再产出 final（安全维度若因改写降级，在 problems 里说明）。做安全 reframe：移除任何绝对化/保证性/制造恐惧表达，把不安全请求改写为娱乐与反思 framing。final 的正文/thread 必须遵守输出类型规则。longTweet/both 时 final.longTweet.body 必须不少于 600 个中文字（目标 600-1200）；若初稿偏短，必须在改写时扩写到位，宁长勿短。",
-    `原始请求（用于安全审查）：${input.topic}\n输出类型：${outputType}\n\n初稿 spine：\n${JSON.stringify(draft.result.fortuneSpine, null, 2)}\n\n初稿长推：\n${draft.result.draftLongTweet || "（无）"}\n\n初稿 thread：\n${JSON.stringify(draft.result.draftThread, null, 2)}\n\n参考资料：\n${refBlock(allRefs, ["operator-rubric.md", "fortune-safety-policy.md"])}`,
+    "你是终审运营编辑兼安全审查官。先按 operator rubric 七维真打分（1-5）。任何一维低于 4 必须改写到 4 分以上再产出 final（安全维度若因改写降级，在 problems 里说明）。做安全 reframe：移除任何绝对化/保证性/制造恐惧表达，把不安全请求改写为娱乐与反思 framing。final 的正文/thread 必须遵守输出类型规则。longTweet/both 时 final.longTweet.body 必须不少于 600 个中文字（目标 600-1200）；若初稿偏短，必须在改写时扩写到位，宁长勿短。另外必须保证：成稿体现 Seth agency framing（注意力/信念/概率线/选择点/当下力量点/小行动中至少一项），并移除任何宿命化表达（命中注定/无法改变/必然失去/不照做就倒霉/在劫难逃）。",
+    `原始请求（用于安全审查）：${input.topic}\n输出类型：${outputType}\n\n初稿 spine：\n${JSON.stringify(draft.result.fortuneSpine, null, 2)}\n\n初稿长推：\n${draft.result.draftLongTweet || "（无）"}\n\n初稿 thread：\n${JSON.stringify(draft.result.draftThread, null, 2)}\n\n参考资料：\n${refBlock(allRefs, ["operator-rubric.md", "fortune-safety-policy.md", "seth-consciousness-framework.md"])}`,
     refineSchema,
     "high",
     model
@@ -436,7 +437,7 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
       topic: input.topic,
       audience: input.audience || brief.audience,
       tone: input.tone,
-      assumptions: brief.assumptions.length ? brief.assumptions : [`目标星座：${astro.sign}；当日侧重域：${astro.focusDomain}（${astro.dateISO}）。`]
+      assumptions: brief.assumptions.length ? brief.assumptions : [`目标星座：${astro.sign}；当日侧重域：${astro.creativeFocusDomain}（创意种子）；${astro.dateISO} ${astro.timeZone}。`]
     },
     audienceInsight: {
       corePain: brief.corePain,
@@ -465,7 +466,7 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
   };
 
   if (process.env.X_AGENT_DEBUG) {
-    logError("fortune_pipeline_usage", new Error("trace"), { usage: usageTotals, sign: astro.sign, focus: astro.focusDomain });
+    logError("fortune_pipeline_usage", new Error("trace"), { usage: usageTotals, sign: astro.sign, focus: astro.creativeFocusDomain, date: astro.dateISO, tz: astro.timeZone });
   }
 
   return {
