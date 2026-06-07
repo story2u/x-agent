@@ -17,7 +17,7 @@ Skills 不再存储到 D1，也不再通过 Web Skill Studio 编辑。TUI 通过
 默认本地 skills：
 
 - `twitter-launch-creative`：通用 X/Twitter 文本生成。
-- `daily-fortune-tweet`：运营级今日运势技能，以星座为命理底料，运行时走 5 段推理 pipeline（understand → diverge → judge → draft → refine）+ 确定性当日星象引擎。
+- `daily-fortune-tweet`：运营级今日运势技能，以星座 + 东方象征（节气/生肖/五行）为命理底料、Seth 意识框架为解释内核，运行时走 5 段推理 pipeline（understand → diverge → judge → draft → refine）+ 确定性当日 FortuneContext。
 
 ## 相关模块
 

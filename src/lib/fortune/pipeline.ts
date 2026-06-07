@@ -365,10 +365,10 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
   ].join("\n");
 
   // Per-stage reference sets — shared by the prompt (refBlock) and the stage trace.
-  const understandRefs = ["audience-overseas-chinese-youth.md", "astrology-signs.md", "astrology-daily-engine.md"];
-  const divergeRefs = ["astrology-signs.md", "astrology-daily-engine.md", "seth-consciousness-framework.md", "fortune-symbol-bank.md", "hook-patterns.md"];
+  const understandRefs = ["audience-overseas-chinese-youth.md", "astrology-signs.md", "astrology-daily-engine.md", "eastern-symbolic-calendar.md"];
+  const divergeRefs = ["astrology-signs.md", "astrology-daily-engine.md", "eastern-symbolic-calendar.md", "seth-consciousness-framework.md", "fortune-symbol-bank.md", "hook-patterns.md"];
   const judgeRefs = ["operator-rubric.md", "golden-examples.md"];
-  const draftRefs = ["astrology-signs.md", "astrology-daily-engine.md", "seth-consciousness-framework.md", "x-long-tweet-patterns.md", "x-thread-patterns.md", "golden-examples.md"];
+  const draftRefs = ["astrology-signs.md", "astrology-daily-engine.md", "eastern-symbolic-calendar.md", "seth-consciousness-framework.md", "x-long-tweet-patterns.md", "x-thread-patterns.md", "golden-examples.md"];
   const refineRefs = ["operator-rubric.md", "fortune-safety-policy.md", "seth-consciousness-framework.md"];
 
   // Stage 1 — understand

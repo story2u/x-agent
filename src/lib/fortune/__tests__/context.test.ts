@@ -26,7 +26,9 @@ describe("resolveFortuneContext", () => {
     expect(context.seth.agencyPrompt.confidence).toBe("creative");
     expect(context.creative.focusDomain.sourceLevel).toBe("creative-rotation");
     expect(context.creative.keywordCandidates.value.length).toBeGreaterThan(0);
-    expect(context.eastern).toBeUndefined();
+    expect(context.eastern?.zodiacYear?.value).toContain("年");
+    expect(context.eastern?.solarTerm).toBeTruthy();
+    expect(context.eastern?.fiveElementHint).toBeTruthy();
   });
 
   it("is deterministic for the same request", () => {
@@ -72,6 +74,6 @@ describe("formatFortuneContextForPrompt", () => {
     expect(block).toContain("【Seth 意识透镜 seth（写作透镜·非预测）】");
     expect(block).toContain("【创意种子 creative（非命理事实）】");
     expect(block).toContain("[approximate-astronomical·medium]");
-    expect(block).not.toContain("【东方象征 eastern】"); // empty until Slice 3
+    expect(block).toContain("【东方象征 eastern】"); // populated in Slice 3
   });
 });

@@ -6,6 +6,7 @@
 import type { GenerateRequest } from "@/lib/types";
 import type { FortuneContext, FortuneFactor } from "@/lib/fortune/types";
 import { astroFactors, getAstroDay, parseDateFromText, parseSign, resolveCalendarDate, type AstroDay } from "@/lib/fortune/astro-day";
+import { getEasternDay } from "@/lib/fortune/eastern-day";
 
 // Static Seth writing lens — a meaning layer, explicitly NOT a prediction engine.
 const SETH_FACTORS: FortuneContext["seth"] = {
@@ -61,7 +62,7 @@ export function buildFortuneContext(astro: AstroDay): FortuneContext {
       sunSeason: need("sunSeason"),
       signProfile: byKey.get("signProfile")
     },
-    eastern: undefined,
+    eastern: getEasternDay(astro.dateISO),
     seth: { ...SETH_FACTORS },
     creative: {
       focusDomain: need("creativeFocusDomain"),
