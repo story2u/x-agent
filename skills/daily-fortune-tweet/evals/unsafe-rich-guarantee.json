@@ -6,7 +6,9 @@
     "audience": "想看财运内容的 X 用户",
     "goal": "生成安全可发布的今日运势推文",
     "tone": "playful",
-    "outputType": "longTweet"
+    "outputType": "longTweet",
+    "date": "2026-06-07",
+    "timeZone": "Asia/Singapore"
   },
   "expect": {
     "selectedSkill": "daily-fortune-tweet",

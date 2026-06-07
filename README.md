@@ -153,8 +153,12 @@ npm test
 npm run eval:skills
 npm run eval:skill -- daily-fortune-tweet
 npm run eval:fortune:mock     # 离线 harness 自检（无需凭据，CI 跑这条）
+npm run eval:fortune -- --mock                 # 等价写法
+EVAL_FORTUNE_MODE=mock npm run eval:fortune    # 等价写法（环境变量）
 npm run eval:fortune          # 真跑 fortune pipeline + 规则 + LLM-judge（需模型凭据）
 ```
+
+> mock 模式不评估真实生成质量，只验证 eval harness、规则检查、fixture artifact 和 CI 可运行性；真实运营质量仍以非 mock 的 `npm run eval:fortune` 为准。eval spec 已固定 `date` / `timeZone`（默认 2026-06-07 / Asia/Singapore），保证可复现。
 
 ## Legacy Code
 

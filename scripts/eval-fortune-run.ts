@@ -29,7 +29,7 @@ interface FortuneEvalSpec {
   id: string;
   skill: string;
   input: string;
-  request: { audience: string; goal: string; tone: string; outputType: string };
+  request: { audience: string; goal: string; tone: string; outputType: string; date?: string; timeZone?: string };
   expect: {
     outputType: string;
     minChineseChars?: number;
@@ -53,6 +53,9 @@ const cliArgs = process.argv.slice(2);
 const mockMode = cliArgs.includes("--mock") || process.env.EVAL_FORTUNE_MODE === "mock";
 const specFilter = cliArgs.find((arg) => !arg.startsWith("--"));
 const minPassRate = Number(process.env.EVAL_FORTUNE_MIN_PASS_RATE) || 0.6;
+// Fixed date/timezone keep eval runs reproducible (the daily fortune context varies by day).
+const DEFAULT_EVAL_DATE = "2026-06-07";
+const DEFAULT_EVAL_TZ = "Asia/Singapore";
 
 const judgeSchema = Type.Object({
   hookStrength: Type.Number({ minimum: 1, maximum: 5 }),
@@ -245,6 +248,9 @@ async function main() {
 
   for (const spec of specs) {
     console.log(`\n=== ${spec.id} ===`);
+    const evalDate = spec.request.date ?? DEFAULT_EVAL_DATE;
+    const evalTimeZone = spec.request.timeZone ?? DEFAULT_EVAL_TZ;
+    console.log(`  date=${evalDate} tz=${evalTimeZone}`);
     const request: GenerateRequest = {
       topic: spec.input,
       audience: spec.request.audience,
@@ -252,6 +258,8 @@ async function main() {
       tone: spec.request.tone as Tone,
       outputType: spec.request.outputType as GenerateRequest["outputType"],
       runMode: "reviewed",
+      date: evalDate,
+      timeZone: evalTimeZone,
       skillIds: ["daily-fortune-tweet"]
     };
 

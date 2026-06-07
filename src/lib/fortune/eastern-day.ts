@@ -102,7 +102,7 @@ export function getEasternDay(dateISO: string): EasternDayContext {
       key: "zodiacYear",
       label: "生肖年",
       value: `${animal}年`,
-      sourceLevel: "approximate-astronomical",
+      sourceLevel: "approximate-calendar",
       confidence: "medium",
       note: "按立春≈2/4 近似；春节流派可能差一年"
     },
@@ -110,7 +110,7 @@ export function getEasternDay(dateISO: string): EasternDayContext {
       key: "solarTerm",
       label: "节气",
       value: `${term.name} — ${term.reading}`,
-      sourceLevel: "approximate-astronomical",
+      sourceLevel: "approximate-calendar",
       confidence: "medium",
       note: "近似日期表，±1 天"
     },

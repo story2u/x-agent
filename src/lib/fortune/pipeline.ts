@@ -72,7 +72,7 @@ const briefSchema = Type.Object({
   topic: Type.String(),
   audience: Type.String(),
   sign: Type.String({ description: "目标星座，如 天秤座；无明确星座时为 通用。" }),
-  focusDomain: Type.String({ description: "今日侧重域，必须与注入的星象事实一致：事业/财运/感情/自我。" }),
+  focusDomain: Type.String({ description: "今日内容侧重域，必须与 FortuneContext.creative.focusDomain 一致；这是 creative-rotation 创意种子，不是命理事实：事业/财运/感情/自我。" }),
   corePain: Type.String(),
   realScenes: Type.Array(Type.String(), { minItems: 2, description: "至少两个受众真实生活场景。" }),
   emotionalNeed: Type.String(),
@@ -374,7 +374,7 @@ export async function runFortunePipeline(input: GenerateRequest, skillTrace: Run
   // Stage 1 — understand
   const understand = await runStage(
     "understand",
-    "你是运营策略分析师。基于用户请求、目标星座的当日星象事实和受众资料，输出一份结构化创作 brief。focusDomain 必须与注入的星象事实里的「今日侧重域」一致。realScenes 至少两个，必须是受众真实生活场景。不要写正文。",
+    "你是运营策略分析师。基于用户请求、FortuneContext 的象征底料与创意种子、受众资料，输出一份结构化创作 brief。focusDomain 必须与 FortuneContext.creative.focusDomain 一致；它是内容创作主轴（creative-rotation 创意种子），不是命理事实。realScenes 至少两个，必须是受众真实生活场景。不要写正文。",
     `${requestBlock}\n\n当日命理底料（含来源标注，必须采用，勿把创意种子当事实）：\n${contextBlock}\n\n参考资料：\n${refBlock(allRefs, understandRefs)}`,
     briefSchema,
     "medium",

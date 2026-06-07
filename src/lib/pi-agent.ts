@@ -390,7 +390,7 @@ function createFallbackCreative(input: GenerateRequest, transcriptText: string, 
   };
 }
 
-function createDailyFortuneFallbackCreative(input: GenerateRequest): TwitterCreative {
+export function createDailyFortuneFallbackCreative(input: GenerateRequest): TwitterCreative {
   const outputType = input.outputType === "thread" || input.outputType === "both" ? input.outputType : "longTweet";
   const theme = detectFortuneTheme(input.topic);
   const keyword = theme === "财运" ? "补漏" : theme === "事业" ? "稳住节奏" : theme === "人际" ? "把话说清楚" : "整理信号";
@@ -496,15 +496,15 @@ function createDailyFortuneFallbackCreative(input: GenerateRequest): TwitterCrea
       thread
     },
     operatorCritique: {
-      hookStrength: 4,
-      specificity: 4,
-      audienceFit: 4,
-      emotionalResonance: 4,
-      shareability: 4,
-      saveWorthiness: 4,
-      safety: 5,
-      problems: [],
-      rewriteDirection: "保留补漏角度，继续强化海外中文年轻人的具体财务场景和轻互动。"
+      hookStrength: 0,
+      specificity: 0,
+      audienceFit: 0,
+      emotionalResonance: 0,
+      shareability: 0,
+      saveWorthiness: 0,
+      safety: 0,
+      problems: ["Fallback artifact: pipeline did not complete full skill execution."],
+      rewriteDirection: "Run the full pipeline again before publishing."
     },
     final: {
       longTweet: {
@@ -520,12 +520,17 @@ function createDailyFortuneFallbackCreative(input: GenerateRequest): TwitterCrea
       seriesLabel: "今日运势补漏系列"
     },
     reviewNotes: {
-      safetyCheck: ["内容定位为娱乐、灵感和反思，不做确定性预测。", "没有提供投资、医疗、法律或赌博建议。"],
-      hypeCheck: ["未使用“稳赚”“一定发财”“马上脱单”等保证性表达。"],
-      publishReadiness: "reviewed"
+      safetyCheck: ["Fallback artifact: pipeline did not complete.", "Review manually before publishing."],
+      hypeCheck: ["Fallback output is conservative and not operator-verified."],
+      publishReadiness: "draft"
     }
   };
-  return creativeFromDailyFortune(dailyFortune);
+  const creative = creativeFromDailyFortune(dailyFortune);
+  return {
+    ...creative,
+    rationale: `Fallback artifact — pipeline did not complete. ${creative.rationale}`,
+    safetyNotes: ["Fallback artifact — pipeline did not complete.", "Review manually before publishing.", ...creative.safetyNotes]
+  };
 }
 
 function detectFortuneTheme(text: string) {

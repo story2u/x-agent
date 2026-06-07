@@ -6,8 +6,9 @@
 
 export type FortuneSourceLevel =
   | "deterministic-calendar" // exact from the civil calendar (weekday, sun-sign season)
+  | "approximate-calendar" // a typical/approximate calendar date table (solar terms, zodiac year by 立春)
   | "traditional-symbolic" // a fixed traditional mapping (weekday planet, sign profile)
-  | "approximate-astronomical" // computed but approximate (moon phase, solar terms)
+  | "approximate-astronomical" // computed but approximate (moon phase)
   | "symbolic-mapping" // a curated symbol → meaning mapping (five elements, tarot)
   | "creative-rotation"; // a deterministic creative seed, NOT a fact (hash rotation)
 

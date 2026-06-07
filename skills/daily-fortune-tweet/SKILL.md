@@ -31,17 +31,21 @@ allowed-tools: finalize_twitter_creative
 - 如涉及金钱，只能给出行为层面的温和提醒，例如“避免冲动消费”“先确认信息再下决定”“复核账单和订阅”。
 - 如果用户要求“今天一定暴富”“稳赚”“必有贵人”，必须在安全审查中标记风险，并改写为娱乐/反思 framing。
 
-## Astrology Grounding（星座底料）
+## Astrology Grounding（星座与象征底料）
 
-本技能以西方占星为命理底料。运行时会为「今天 + 目标星座」计算确定性星象事实并注入每一段推理（实现见 `src/lib/fortune/astro-day.ts`）：
+本技能以西方占星 + 东方象征为底料。运行时为「日期 + 时区 + 目标星座」生成可复现的 `FortuneContext`（实现见 `src/lib/fortune/context.ts`），底料分三类，每个因子都带来源等级与置信度（`sourceLevel` / `confidence`）：
 
-- 目标星座：从用户输入解析（如「今日天秤座运势」→ 天秤座）；未指定时回退当日太阳星座或「通用」。
-- 当日星象事实（确定性，不可臆造）：星期主行星能量、月相及其行为含义、太阳季节背景、今日侧重域（事业/财运/感情/自我，按日期+星座确定性轮换）、情绪基调。
-- 星座画像：元素、模式、守护星、核心驱动、阴影张力。
+1. Calendar / symbolic factors（西方）：星期主行星、月相、太阳季节背景、星座画像。
+2. Eastern symbolic factors（东方）：生肖年、节气、五行当令、季节行动建议。
+3. Creative seeds：今日侧重域、情绪基调、今日关键词候选。
 
-解读规则见 references：`astrology-signs.md`（十二星座底料）、`astrology-daily-engine.md`（月相/星期/侧重域 → 当日基调）。
+目标星座：从用户输入解析（如「今日天秤座运势」→ 天秤座）；未指定时回退当日太阳星座或「通用」。
 
-要点：今天写什么主轴由「今日侧重域」决定；每天、每个星座的星象事实都不同，内容必须随之不同，不要每天都收敛到同一个主题。星座与月相只是情绪与行为的隐喻，不是命运开关（遵守 Safety Positioning）。
+Creative seeds 由日期、星座和固定映射确定性生成，只用于内容多样性和创作主轴，**不是命理事实**，不得写成「星象证明今天一定会怎样」。今天写什么主轴由 `FortuneContext.creative.focusDomain` 提供方向，但它是创意种子（creative-rotation），不是预测结论。
+
+解读规则见 references：`astrology-signs.md`（十二星座底料）、`astrology-daily-engine.md`（月相/星期/侧重域 → 当日基调）、`eastern-symbolic-calendar.md`（五行/节气/生肖 → 现代行动）。
+
+象征只是情绪与行为的隐喻，不是命运开关（遵守 Safety Positioning）。
 
 ## Seth Consciousness Layer（意识解释内核）
 

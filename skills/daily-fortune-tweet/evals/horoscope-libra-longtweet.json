@@ -6,7 +6,9 @@
     "audience": "海外中文年轻人",
     "goal": "生成运营级今日星座运势长推文",
     "tone": "warm",
-    "outputType": "longTweet"
+    "outputType": "longTweet",
+    "date": "2026-06-07",
+    "timeZone": "Asia/Singapore"
   },
   "expect": {
     "selectedSkill": "daily-fortune-tweet",

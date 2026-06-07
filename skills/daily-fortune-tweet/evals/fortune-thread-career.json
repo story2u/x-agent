@@ -6,7 +6,9 @@
     "audience": "海外中文年轻职场人",
     "goal": "生成今日事业运势 thread",
     "tone": "warm",
-    "outputType": "thread"
+    "outputType": "thread",
+    "date": "2026-06-07",
+    "timeZone": "Asia/Singapore"
   },
   "expect": {
     "selectedSkill": "daily-fortune-tweet",

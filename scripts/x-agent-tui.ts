@@ -406,6 +406,9 @@ function printCredentialHint(provider: ModelProvider) {
 function printResult(result: GenerateResponse) {
   const { creative, skillTrace, usage } = result;
   console.log("");
+  if (creative.rationale.startsWith("Fallback artifact")) {
+    console.log(`${ansi.yellow}fallback artifact — review manually (pipeline did not complete)${ansi.reset}`);
+  }
   console.log(`${ansi.green}${ansi.bold}artifact${ansi.reset}`);
   if (creative.dailyFortune) {
     printDailyFortune(creative.dailyFortune);

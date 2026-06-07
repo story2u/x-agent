@@ -14,10 +14,10 @@ describe("getEasternDay", () => {
 
   it("marks zodiac year and solar term as approximate with a note", () => {
     const eastern = getEasternDay("2026-06-07");
-    expect(eastern.zodiacYear?.sourceLevel).toBe("approximate-astronomical");
+    expect(eastern.zodiacYear?.sourceLevel).toBe("approximate-calendar");
     expect(eastern.zodiacYear?.confidence).toBe("medium");
     expect(eastern.zodiacYear?.note).toBeTruthy();
-    expect(eastern.solarTerm?.sourceLevel).toBe("approximate-astronomical");
+    expect(eastern.solarTerm?.sourceLevel).toBe("approximate-calendar");
     expect(eastern.solarTerm?.note).toBeTruthy();
   });
 
